@@ -142,3 +142,96 @@ interface FreezerItem {
 - 情绪标签：兴奋 / 焦虑 / 无聊 / 压力大 / 跟风。
 - 文本框可选，最多 140 字；提交后 +5 EXP（每个商品限一次），存入 `item.journal`。
 - 在金库"防御战报"Tab 新增"冲动画像"：用图表展示触发场景分布。
+
+### 4.6 阶段通知 Notification Nudges（重做）
+
+**现状**：只有到期一条通知。
+
+**新方案**：冷冻时一次性调度多条通知，每条文案对应不同干预引导：
+
+| 节点 | 文案 | 点击后 |
+|---|---|---|
+| 25% | "❄️「XX」已冷冻 1/4。冲动退散了吗？点我查看欲望曲线" | 打开详情页，高亮多巴胺曲线 |
+| 50% | "🧊 半程已过！来冷静舱做 1 分钟呼吸，理智值拉满" | 直接打开 BreathChamber |
+| 75% | "🔥 解冻临近！最后冲刺，再想想这笔钱能换什么？" | 打开替代想象卡片 |
+| 到期前 1 小时（仅冰川级） | "⏰ 还有 1 小时解冻。给 3 个月后的自己留句话吧" | 打开未来自我输入 |
+| 到期 | 现有文案保留 | 打开决策弹窗 |
+
+**技术实现**：
+- `NotificationService.scheduleInterventionNudges(item)`：按 `frozenAt + duration * 0.25/0.5/0.75` 计算时间戳，批量调度。
+- 通知 payload 带 `data: { screen: 'detail', itemId, action: 'breath' | 'substitution' | ... }`，App 端用 `Notifications.addNotificationResponseReceivedListener` 路由。
+- 商品被提前处理时按 `item.notificationIds` 取消该商品的所有通知。
+
+---
+
+## 五、多巴胺曲线个性化（DopamineChart 升级）
+
+**现状**：固定曲线插图。
+
+**新方案**：
+- 曲线形状 = f（商品价格, 冷冻时长, 已完成干预次数）：
+  - 价格越高 → 峰值越高（冲动越强）
+  - 每完成一次有效干预（呼吸/拷问通过/日记），曲线"砍一刀"下降 8%，直观反馈"你的干预正在起效"
+  - 干预次数越多，曲线尾部越低（残余欲望越少）
+- 解冻决策时，曲线下方显示总结："本次干预共压平冲动峰值 42%"。
+- 实现：DopamineChart 接收 `item` 和干预计数，用 `react-native-svg` 的 Path 动态生成贝塞尔曲线，替换现有静态图。
+
+---
+
+## 六、数据模型与存储变更汇总
+
+```ts
+// types/index.ts 新增/修改
+export type ImpulseTier = 'snack' | 'standard' | 'glacier';
+
+export interface InterventionRecord {
+  type: 'breath' | 'quiz_pass' | 'journal' | 'substitution';
+  timestamp: number;
+  detail?: string;
+}
+
+export interface FreezerItem {
+  // ...existing fields
+  tier: ImpulseTier;
+  tapsToday: number;
+  lastTapDate: string;
+  chillToday: number;
+  lastChillDate: string;
+  rationalMarks: number[];
+  quizInsisted: number;
+  futureSelfNote?: string;
+  journal?: { scene: string; mood: string; note?: string };
+  interventionLog: InterventionRecord[];
+  notificationIds: string[];
+}
+```
+
+迁移策略：`StorageService.getItems()` 读取后做 `migrateItem(item)` 补默认值，一次性完成。
+
+---
+
+## 七、界面改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `FreezeDetailScreen.tsx` | 按 tier 渲染；新增 BreathChamber、日记入口；移除所有 Alert，改为行内反馈 |
+| `TapShield.tsx` | 连击动画、疲劳曲线文案、次数按 tier；新增"霜花"覆盖动画 |
+| `RealityCheckModal.tsx` | 激励机制重做（印记替代 EXP）；新增冰川级"未来自我"输入；时薪可输入 |
+| 新增 `BreathChamber.tsx` | 全屏 4-7-8 呼吸引导 |
+| 新增 `SubstitutionCards.tsx` | 等价替代卡片 + 一键加心愿 |
+| 新增 `ImpulseJournalModal.tsx` | 场景/情绪标签 + 文本 |
+| `DopamineChart.tsx` | 动态曲线，随干预下降 |
+| `services/notifications.ts` | 新增 `scheduleInterventionNudges`、按商品取消 |
+| `constants/intervention.ts`（新增） | 档位配置、换算表、通知文案、呼吸参数 |
+
+---
+
+## 八、验收标准（Definition of Done）
+
+1. 不同价位商品的破冰次数、呼吸上限、拷问关卡数不同。
+2. 呼吸完成 3 轮前退出不给 EXP；每日上限达到后按钮置灰。
+3. 拷问选"理性"不再弹 EXP Alert，而是获得印记，UI 上有印记收集进度条（4 格）。
+4. 冷冻商品后，`Notifications.getAllScheduledNotificationsAsync()` 能看到多条计划通知。
+5. 多巴胺曲线随干预次数增加而下降，解冻时显示"压平百分比"。
+6. 冲动日记提交后，金库 Tab 能看到画像数据。
+7. 全程无系统 Alert（除破坏性操作确认外）。

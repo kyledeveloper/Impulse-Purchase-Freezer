@@ -14,17 +14,26 @@ import { ASSETS } from '../constants/assets';
 import { Header } from '../components/Header';
 import { TapShield } from '../components/TapShield';
 import { DopamineChart } from '../components/DopamineChart';
+import { BreathChamber } from '../components/BreathChamber';
+import { SubstitutionCards } from '../components/SubstitutionCards';
 import { RealityCheckModal } from '../components/Modals/RealityCheckModal';
-import { FreezerItem } from '../types';
+import { ImpulseJournalModal } from '../components/Modals/ImpulseJournalModal';
+import { FreezerItem, WishlistItem, InterventionRecord } from '../types';
 import { HapticsService } from '../services/haptics';
 import { AudioService } from '../services/audio';
 import { StorageService } from '../services/storage';
+import {
+  getImpulseTier,
+  resetDailyCounters,
+  BREATH_CONFIG,
+} from '../constants/intervention';
 
 interface FreezeDetailScreenProps {
   item: FreezerItem;
   onBack: () => void;
   onTriggerDecision: (item: FreezerItem) => void;
   onUpdateItem: (updated: FreezerItem) => void;
+  onAddWish?: (wish: WishlistItem) => void;
 }
 
 export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
@@ -32,12 +41,44 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
   onBack,
   onTriggerDecision,
   onUpdateItem,
+  onAddWish,
 }) => {
-  const [tapsRemaining, setTapsRemaining] = useState(item.breakTapsRemaining);
+  // Tier config (migrate-on-read: fall back to price-derived tier)
+  const tierCfg = getImpulseTier(item.price);
+  const maxTaps = tierCfg.maxTaps;
+
+  // Cross-day reset of daily counters before reading them
+  const resetItem = resetDailyCounters(item);
+  const tapsToday = resetItem.tapsToday ?? 0;
+  const chillToday = resetItem.chillToday ?? 0;
+
+  const [tapsRemaining, setTapsRemaining] = useState(
+    Math.min(resetItem.breakTapsRemaining, maxTaps)
+  );
   const [now, setNow] = useState(Date.now());
   const [realityLevel, setRealityLevel] = useState<number>(25);
   const [realityModalVisible, setRealityModalVisible] = useState(false);
-  const [answeredLevels, setAnsweredLevels] = useState<number[]>(item.answeredQuizLevels || []);
+  const [answeredLevels, setAnsweredLevels] = useState<number[]>(
+    resetItem.answeredQuizLevels || []
+  );
+  const [rationalMarks, setRationalMarks] = useState<number[]>(
+    resetItem.rationalMarks || []
+  );
+  const [breathVisible, setBreathVisible] = useState(false);
+  const [journalVisible, setJournalVisible] = useState(false);
+  const [bannerMsg, setBannerMsg] = useState<string | null>(null);
+
+  // Persist the migrated / daily-reset item once on mount if it changed
+  useEffect(() => {
+    if (
+      resetItem.lastResetDate !== item.lastResetDate ||
+      resetItem.tapsToday !== item.tapsToday ||
+      resetItem.chillToday !== item.chillToday
+    ) {
+      onUpdateItem(resetItem);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Real-time second-by-second ticker
   useEffect(() => {
@@ -46,6 +87,22 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Inline banner (replaces system Alert for intervention feedback)
+  const showBanner = (msg: string) => {
+    setBannerMsg(msg);
+    setTimeout(() => setBannerMsg(null), 3200);
+  };
+
+  const appendLog = (base: FreezerItem, rec: InterventionRecord): InterventionRecord[] => {
+    return [...(base.interventionLog || []), rec];
+  };
+
+  // Effective intervention count driving the dopamine curve suppression
+  const interventionCount =
+    (resetItem.interventionLog || []).filter(
+      (r) => r.type === 'breath' || r.type === 'quiz_pass' || r.type === 'journal'
+    ).length;
 
   // Format remaining time for the gold timer badge
   const remainingMs = Math.max(0, item.thawAt - now);
@@ -65,95 +122,155 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
     Math.round((elapsedMs / totalDurationMs) * 100)
   );
 
+  // Daily tap fatigue: beyond dailyTapLimit taps still work but the UI discourages;
+  // beyond 2x dailyTapLimit, tapping is exhausted for the day.
+  const tapFatigued = tapsToday >= tierCfg.dailyTapLimit;
+  const dailyTapExhausted = tapsToday >= tierCfg.dailyTapLimit * 2;
+
   // Breaker Click Handler
   const handleBreakTap = () => {
+    if (dailyTapExhausted) return;
+
     const nextTaps = Math.max(0, tapsRemaining - 1);
     setTapsRemaining(nextTaps);
-    onUpdateItem({ ...item, breakTapsRemaining: nextTaps });
+    const nextTapsToday = tapsToday + 1;
+    onUpdateItem({
+      ...resetItem,
+      breakTapsRemaining: nextTaps,
+      tapsToday: nextTapsToday,
+    });
 
-    // Checkpoints for reality questions (when 25, 50, 75, 100 taps are done)
-    // 75 taps left = 25 done
-    // 50 taps left = 50 done
-    // 25 taps left = 75 done
-    // 0 taps left = 100 done
-    if (nextTaps === 75 && !answeredLevels.includes(25)) {
-      setRealityLevel(25);
-      setRealityModalVisible(true);
-    } else if (nextTaps === 50 && !answeredLevels.includes(50)) {
-      setRealityLevel(50);
-      setRealityModalVisible(true);
-    } else if (nextTaps === 25 && !answeredLevels.includes(75)) {
-      setRealityLevel(75);
-      setRealityModalVisible(true);
-    } else if (nextTaps === 0) {
+    // Reality-check checkpoints based on fraction of taps completed
+    // (75% left = 25% done, etc.) mapped onto tier quiz levels
+    const doneFraction = (maxTaps - nextTaps) / Math.max(1, maxTaps);
+    const checkpoint =
+      doneFraction >= 1
+        ? 100
+        : doneFraction >= 0.75
+        ? 75
+        : doneFraction >= 0.5
+        ? 50
+        : doneFraction >= 0.25
+        ? 25
+        : null;
+
+    const isNewCheckpoint =
+      checkpoint !== null &&
+      tierCfg.quizLevels.includes(checkpoint) &&
+      !answeredLevels.includes(checkpoint) &&
+      // only trigger exactly when crossing the boundary
+      Math.abs(doneFraction - checkpoint / 100) < 1 / Math.max(1, maxTaps);
+
+    if (checkpoint === 100 && nextTaps === 0) {
       HapticsService.heavyBreak();
       AudioService.playIceCrackSound();
       setRealityLevel(100);
       setRealityModalVisible(true);
+    } else if (isNewCheckpoint && checkpoint !== null) {
+      setRealityLevel(checkpoint);
+      setRealityModalVisible(true);
     }
   };
 
-  // Chill Boost (Deep Breathing + Cold Injection) Handler
-  const handleChillBoost = async () => {
-    const updatedBonus = item.calmWaitBonus + 1;
-    onUpdateItem({ ...item, calmWaitBonus: updatedBonus });
-    await StorageService.addWillpowerExp(15);
-
-    const quotes = [
-      '“延迟满足是高情商与财富积累的秘密。”',
-      '“你的自控力正在战胜短暂的多巴胺诱惑！”',
-      '“省下的每一分钱，都在为你真正的梦想充能。”',
-      '“深呼吸，48小时后你可能根本不需要它。”',
-      '“冲动的快感只有几分钟，账户的余额能陪你很久。”',
-    ];
-    const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
-
-    Alert.alert(
-      '❄️ 注入理智冷气成功！',
-      `意志力经验 +15 EXP！
-
-${randomQuote}
-
-当前商品冷静注冷次数：${updatedBonus} 次`,
-      [{ text: '继续保持' }]
-    );
+  // Breath Chamber callbacks
+  const handleBreathComplete = async () => {
+    setBreathVisible(false);
+    const nextChillToday = chillToday + 1;
+    const updated: FreezerItem = {
+      ...resetItem,
+      calmWaitBonus: resetItem.calmWaitBonus + 1,
+      chillToday: nextChillToday,
+      interventionLog: appendLog(resetItem, { type: 'breath', timestamp: Date.now() }),
+    };
+    onUpdateItem(updated);
+    await StorageService.addWillpowerExp(BREATH_CONFIG.expReward);
+    showBanner(`❄️ 完成 ${BREATH_CONFIG.roundsRequired} 轮深呼吸 · 意志力 +${BREATH_CONFIG.expReward} EXP`);
   };
 
-  // Reality Check Modal Callbacks
-  const handleRealityRationalChoice = async () => {
+  const handleBreathAbort = () => {
+    setBreathVisible(false);
+    showBanner('没关系，哪怕一次深呼吸也有用');
+  };
+
+  // Reality Check Modal Callbacks — rational choice now grants a MARK, not direct EXP
+  const handleRealityRationalChoice = async (futureSelfNote?: string) => {
     setRealityModalVisible(false);
-    const expGain = realityLevel === 25 ? 20 : realityLevel === 50 ? 30 : realityLevel === 75 ? 40 : 50;
-    await StorageService.addWillpowerExp(expGain);
+    const nextMarks = rationalMarks.includes(realityLevel)
+      ? rationalMarks
+      : [...rationalMarks, realityLevel];
+    setRationalMarks(nextMarks);
 
-    Alert.alert(
-      '🛡️ 理性重归上风！',
-      `你通过反思成功抵御了本轮破冰冲动！
-获得意志力经验 +${expGain} EXP！
+    const nextAnswered = answeredLevels.includes(realityLevel)
+      ? answeredLevels
+      : [...answeredLevels, realityLevel];
+    setAnsweredLevels(nextAnswered);
 
-是否直接确认放弃购买，将 ¥${item.price.toLocaleString('zh-CN')} 金币存入金库？`,
-      [
-        {
-          text: '直接放弃购买（金币入袋）',
-          onPress: () => onTriggerDecision(item),
-        },
-        {
-          text: '放回冷冻舱继续冷静',
-        },
-      ]
-    );
+    const updated: FreezerItem = {
+      ...resetItem,
+      breakTapsRemaining: tapsRemaining,
+      rationalMarks: nextMarks,
+      answeredQuizLevels: nextAnswered,
+      futureSelfNote: futureSelfNote ?? resetItem.futureSelfNote,
+      interventionLog: appendLog(resetItem, {
+        type: 'quiz_pass',
+        timestamp: Date.now(),
+        detail: `level_${realityLevel}`,
+      }),
+    };
+    onUpdateItem(updated);
+
+    if (realityLevel === 100) {
+      // Final checkpoint passed rationally -> go straight to decision
+      onTriggerDecision(updated);
+      return;
+    }
+
+    showBanner(`🛡️ 获得「理智印记」(${nextMarks.length}/${tierCfg.quizLevels.length}) · 解冻时每个印记兑换 +15 EXP`);
   };
 
   const handleRealityContinueBreaker = () => {
     setRealityModalVisible(false);
     const nextAnswered = [...answeredLevels, realityLevel];
     setAnsweredLevels(nextAnswered);
-    onUpdateItem({ ...item, answeredQuizLevels: nextAnswered });
+    onUpdateItem({
+      ...resetItem,
+      breakTapsRemaining: tapsRemaining,
+      answeredQuizLevels: nextAnswered,
+      quizInsisted: (resetItem.quizInsisted || 0) + 1,
+    });
 
     if (realityLevel === 100) {
-      // Completed all 100 taps and 4 questions! Open final decision
-      onTriggerDecision(item);
+      // Completed all taps and chose to insist -> open final decision
+      onTriggerDecision({ ...resetItem, breakTapsRemaining: 0, answeredQuizLevels: nextAnswered });
     }
   };
+
+  // Impulse Journal callback
+  const handleJournalSubmit = async (scene: string, mood: string, note: string) => {
+    setJournalVisible(false);
+    const updated: FreezerItem = {
+      ...resetItem,
+      breakTapsRemaining: tapsRemaining,
+      journal: { scene, mood, note: note || undefined, createdAt: Date.now() },
+      interventionLog: appendLog(resetItem, {
+        type: 'journal',
+        timestamp: Date.now(),
+        detail: `${scene}/${mood}`,
+      }),
+    };
+    onUpdateItem(updated);
+    await StorageService.addWillpowerExp(5);
+    showBanner('📝 冲动日记已保存 · 意志力 +5 EXP');
+  };
+
+  const handleAddWishFromSubstitution = (wish: WishlistItem) => {
+    if (onAddWish) {
+      onAddWish(wish);
+      showBanner(`🎯 已将「${wish.title}」加入心愿单`);
+    }
+  };
+
+  const marksProgressText = `${rationalMarks.length}/${tierCfg.quizLevels.length}`;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -167,16 +284,24 @@ ${randomQuote}
           onSettingsPress={() => {
             Alert.alert(
               '冷冻舱设置',
-              `商品：${item.name}
-录入时间：${new Date(item.frozenAt).toLocaleString()}
-预计解冻：${new Date(
+              `商品：${item.name}\n档位：${tierCfg.emoji} ${tierCfg.label}\n录入时间：${new Date(
+                item.frozenAt
+              ).toLocaleString()}\n预计解冻：${new Date(
                 item.thawAt
-              ).toLocaleString()}
-当前冷冻期：${item.freezeDurationHours < 1 ? '10秒(测试)' : item.freezeDurationHours + '小时'}`
+              ).toLocaleString()}\n当前冷冻期：${
+                item.freezeDurationHours < 1 ? '10秒(测试)' : item.freezeDurationHours + '小时'
+              }`
             );
           }}
           theme="ice"
         />
+
+        {/* Inline feedback banner (replaces system Alert) */}
+        {bannerMsg && (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>{bannerMsg}</Text>
+          </View>
+        )}
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -188,23 +313,82 @@ ${randomQuote}
             <Text style={styles.timerDigits}>{formattedCountdown}</Text>
           </View>
 
-          {/* Interactive Tap Shield Scene (Pure & Realistic) */}
+          {/* Tier badge */}
+          <View style={styles.tierBadge}>
+            <Text style={styles.tierBadgeText}>
+              {tierCfg.emoji} {tierCfg.label} · 理智印记 {marksProgressText}
+            </Text>
+          </View>
+
+          {/* Interactive Tap Shield Scene */}
           <TapShield
             item={item}
             itemImage={item.image}
             rawCutoutImage={item.rawCutout}
             tapsRemaining={tapsRemaining}
-            calmWaitBonus={item.calmWaitBonus}
+            calmWaitBonus={resetItem.calmWaitBonus}
             countdownProgressPercent={countdownProgressPercent}
+            maxTaps={maxTaps}
+            chillToday={chillToday}
+            dailyBreathLimit={tierCfg.dailyBreathLimit}
+            tapFatigued={tapFatigued}
+            dailyTapExhausted={dailyTapExhausted}
             onTapBreaker={handleBreakTap}
-            onChillBoost={handleChillBoost}
+            onOpenBreathChamber={() => setBreathVisible(true)}
           />
 
-          {/* Scientific Dopamine / Desire Decay Chart */}
+          {/* Scientific Dopamine / Desire Decay Chart (dynamic, intervention-aware) */}
           <DopamineChart
             freezeDurationHours={item.freezeDurationHours}
             frozenAt={item.frozenAt}
+            itemPrice={item.price}
+            interventionCount={interventionCount}
           />
+
+          {/* Substitution / opportunity-cost cards with one-tap add-to-wishlist */}
+          <SubstitutionCards item={item} onAddWish={handleAddWishFromSubstitution} />
+
+          {/* Rational marks progress */}
+          <View style={styles.marksCard}>
+            <Text style={styles.marksTitle}>🛡️ 理智印记收集</Text>
+            <View style={styles.marksRow}>
+              {tierCfg.quizLevels.map((lv) => {
+                const earned = rationalMarks.includes(lv);
+                return (
+                  <View key={lv} style={[styles.markCell, earned && styles.markCellEarned]}>
+                    <Text style={[styles.markCellText, earned && styles.markCellTextEarned]}>
+                      {earned ? '🛡️' : '○'} {lv}%
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+            <Text style={styles.marksHint}>
+              破冰阈值拷问中选择理性反思可获得印记，解冻时每个印记兑换 +15 EXP
+            </Text>
+          </View>
+
+          {/* Impulse Journal entry */}
+          <TouchableOpacity
+            style={styles.journalBtn}
+            activeOpacity={0.8}
+            onPress={() => setJournalVisible(true)}
+            disabled={!!resetItem.journal}
+          >
+            <Text style={styles.journalBtnText}>
+              {resetItem.journal
+                ? `📝 已记录冲动来源：${resetItem.journal.scene} · ${resetItem.journal.mood}`
+                : '📝 记录这次冲动的来源（+5 EXP）'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Future-self note preview (if left at final checkpoint) */}
+          {!!resetItem.futureSelfNote && (
+            <View style={styles.futureSelfCard}>
+              <Text style={styles.futureSelfLabel}>💌 给 3 个月后的自己：</Text>
+              <Text style={styles.futureSelfText}>{resetItem.futureSelfNote}</Text>
+            </View>
+          )}
 
           {/* Item Meta Information Card */}
           <View style={styles.itemMetaCard}>
@@ -234,13 +418,29 @@ ${randomQuote}
           </View>
         </ScrollView>
 
+        {/* Breath Chamber (4-7-8 guided breathing) */}
+        <BreathChamber
+          visible={breathVisible}
+          onComplete={handleBreathComplete}
+          onAbort={handleBreathAbort}
+        />
+
         {/* Reality Check Modal */}
         <RealityCheckModal
           visible={realityModalVisible}
           item={item}
           level={realityLevel}
+          showFutureSelfInput={tierCfg.hasFutureSelf && realityLevel === 100}
           onRationalChoice={handleRealityRationalChoice}
           onContinueBreaker={handleRealityContinueBreaker}
+        />
+
+        {/* Impulse Journal Modal */}
+        <ImpulseJournalModal
+          visible={journalVisible}
+          itemName={item.name}
+          onSubmit={handleJournalSubmit}
+          onClose={() => setJournalVisible(false)}
         />
       </View>
     </SafeAreaView>
@@ -255,6 +455,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bgDeepIce,
+  },
+  banner: {
+    marginHorizontal: 16,
+    marginTop: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  bannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6EE7B7',
+    textAlign: 'center',
   },
   scrollContent: {
     alignItems: 'center',
@@ -282,6 +498,102 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontVariant: ['tabular-nums'],
     letterSpacing: 1,
+  },
+  tierBadge: {
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.4)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  tierBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#7DD3FC',
+    letterSpacing: 0.4,
+  },
+  marksCard: {
+    width: '100%',
+    backgroundColor: '#0F1E36',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#1E3A5F',
+    padding: 12,
+    marginBottom: 10,
+  },
+  marksTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    marginBottom: 8,
+  },
+  marksRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  markCell: {
+    flex: 1,
+    backgroundColor: '#13233F',
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1E3A5F',
+  },
+  markCellEarned: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+  },
+  markCellText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  markCellTextEarned: {
+    color: '#34D399',
+  },
+  marksHint: {
+    fontSize: 10,
+    color: '#64748B',
+    lineHeight: 14,
+  },
+  journalBtn: {
+    width: '100%',
+    backgroundColor: '#0F1E36',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#1E3A5F',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  journalBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#E2E8F0',
+  },
+  futureSelfCard: {
+    width: '100%',
+    backgroundColor: 'rgba(103, 232, 249, 0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(103, 232, 249, 0.35)',
+    padding: 12,
+    marginBottom: 10,
+  },
+  futureSelfLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#67E8F9',
+    marginBottom: 4,
+  },
+  futureSelfText: {
+    fontSize: 13,
+    color: '#E0F2FE',
+    lineHeight: 19,
   },
   itemMetaCard: {
     backgroundColor: '#0F1E36',

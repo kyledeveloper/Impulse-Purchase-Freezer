@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FreezerItem, VaultStats, WishlistItem, DefenseRecord } from '../types';
 import { INITIAL_ITEMS, INITIAL_VAULT_STATS, INITIAL_WISHLIST, MEDAL_LIST, DEFENSE_RANKS } from '../constants/mockData';
+import { getImpulseTier, todayStr } from '../constants/intervention';
 
 const KEYS = {
   ITEMS: '@ipf_items_v1',
@@ -8,6 +9,28 @@ const KEYS = {
   WISHLIST: '@ipf_wishlist_v1',
   RECORDS: '@ipf_records_v1',
 };
+
+/**
+ * Migrates legacy FreezerItem records to the intervention-module schema.
+ * Fills in tier-based defaults for any missing new fields.
+ */
+export function migrateItem(item: FreezerItem): FreezerItem {
+  const tierCfg = getImpulseTier(item.price);
+  return {
+    ...item,
+    tier: item.tier ?? tierCfg.tier,
+    breakTapsRemaining: item.breakTapsRemaining ?? tierCfg.maxTaps,
+    calmWaitBonus: item.calmWaitBonus ?? 0,
+    answeredQuizLevels: item.answeredQuizLevels ?? [],
+    tapsToday: item.tapsToday ?? 0,
+    chillToday: item.chillToday ?? 0,
+    lastResetDate: item.lastResetDate ?? todayStr(),
+    rationalMarks: item.rationalMarks ?? [],
+    quizInsisted: item.quizInsisted ?? 0,
+    interventionLog: item.interventionLog ?? [],
+    notificationIds: item.notificationIds ?? [],
+  };
+}
 
 function calculateDefenseLevel(saved: number, defended: number, exp: number): number {
   let level = 1;
@@ -24,13 +47,15 @@ export const StorageService = {
     try {
       const data = await AsyncStorage.getItem(KEYS.ITEMS);
       if (data) {
-        return JSON.parse(data);
+        const parsed: FreezerItem[] = JSON.parse(data);
+        return parsed.map(migrateItem);
       }
-      await AsyncStorage.setItem(KEYS.ITEMS, JSON.stringify(INITIAL_ITEMS));
-      return INITIAL_ITEMS;
+      const seeded = INITIAL_ITEMS.map(migrateItem);
+      await AsyncStorage.setItem(KEYS.ITEMS, JSON.stringify(seeded));
+      return seeded;
     } catch (e) {
       console.warn('Failed to load items from storage:', e);
-      return INITIAL_ITEMS;
+      return INITIAL_ITEMS.map(migrateItem);
     }
   },
 

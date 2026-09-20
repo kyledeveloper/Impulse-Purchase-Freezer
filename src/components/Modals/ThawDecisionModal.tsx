@@ -82,6 +82,14 @@ export const ThawDecisionModal: React.FC<ThawDecisionModalProps> = ({
             <Text style={styles.itemPrice}>¥{item.price.toLocaleString('zh-CN')}</Text>
           </View>
 
+          {/* Future-self note written at the final checkpoint (glacier tier) */}
+          {!!item.futureSelfNote && (
+            <View style={styles.futureSelfBox}>
+              <Text style={styles.futureSelfLabel}>💌 冷冻时你给未来的留言：</Text>
+              <Text style={styles.futureSelfText}>{item.futureSelfNote}</Text>
+            </View>
+          )}
+
           {/* Psychological Question */}
           <View style={styles.questionBox}>
             <Text style={styles.questionText}>你现在还想买它吗？</Text>
@@ -204,6 +212,26 @@ const styles = StyleSheet.create({
   questionBox: {
     alignItems: 'center',
     marginBottom: 18,
+  },
+  futureSelfBox: {
+    width: '100%',
+    backgroundColor: 'rgba(103, 232, 249, 0.08)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(103, 232, 249, 0.35)',
+    padding: 10,
+    marginBottom: 14,
+  },
+  futureSelfLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#67E8F9',
+    marginBottom: 3,
+  },
+  futureSelfText: {
+    fontSize: 12,
+    color: '#E0F2FE',
+    lineHeight: 17,
   },
   questionText: {
     fontSize: 18,

@@ -1,5 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { FreezerItem } from '../types';
+import { getImpulseTier, NUDGE_MESSAGES } from '../constants/intervention';
 
 // Set notification handler
 if (Platform.OS !== 'web') {
@@ -51,6 +53,73 @@ export const NotificationService = {
     } catch (e) {
       console.warn('Failed to schedule notification:', e);
       return null;
+    }
+  },
+
+  /**
+   * Schedules the full set of intervention nudges for a freezing item based on its tier:
+   * progress milestones (25%/50%/75%), optional 1-hour-before reminder, and final thaw notice.
+   * Returns all scheduled notification ids so they can be cancelled later.
+   */
+  async scheduleInterventionNudges(item: FreezerItem): Promise<string[]> {
+    if (Platform.OS === 'web') return [];
+    const ids: string[] = [];
+    try {
+      const tierCfg = getImpulseTier(item.price);
+      const totalMs = item.thawAt - item.frozenAt;
+      const now = Date.now();
+
+      const scheduleAt = async (timestamp: number, key: keyof typeof NUDGE_MESSAGES, action: string) => {
+        const seconds = Math.floor((timestamp - now) / 1000);
+        if (seconds < 5) return; // skip past / imminent triggers
+        const msg = NUDGE_MESSAGES[key](item.name);
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: msg.title,
+            body: msg.body,
+            sound: true,
+            data: { screen: 'detail', itemId: item.id, action },
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds,
+          },
+        });
+        ids.push(id);
+      };
+
+      // Progress milestone nudges
+      for (const fraction of tierCfg.notifyFractions) {
+        const key = String(Math.round(fraction * 100));
+        if (NUDGE_MESSAGES[key]) {
+          await scheduleAt(item.frozenAt + totalMs * fraction, key, `nudge_${key}`);
+        }
+      }
+
+      // Glacier tier: 1-hour-before nudge
+      if (tierCfg.notifyOneHourBefore) {
+        await scheduleAt(item.thawAt - 3600 * 1000, '1h', 'nudge_1h');
+      }
+
+      // Final thaw notification
+      await scheduleAt(item.thawAt, 'thaw', 'thaw');
+    } catch (e) {
+      console.warn('Failed to schedule intervention nudges:', e);
+    }
+    return ids;
+  },
+
+  /**
+   * Cancels all scheduled notifications belonging to an item (e.g. when resolved early).
+   */
+  async cancelItemNotifications(notificationIds?: string[]): Promise<void> {
+    if (Platform.OS === 'web' || !notificationIds?.length) return;
+    for (const id of notificationIds) {
+      try {
+        await Notifications.cancelScheduledNotificationAsync(id);
+      } catch (e) {
+        // notification may have already fired; ignore
+      }
     }
   },
 };

@@ -39,13 +39,25 @@ export const VaultScreen: React.FC<VaultScreenProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'wishes' | 'history'>('wishes');
   const [records, setRecords] = useState<DefenseRecord[]>([]);
+  const [journalSceneStats, setJournalSceneStats] = useState<[string, number][]>([]);
   const [addWishModalVisible, setAddWishModalVisible] = useState(false);
 
-  // Load history records on mount
+  // Load history records & impulse journal profile on mount
   useEffect(() => {
     async function loadRecords() {
       const recs = await StorageService.getDefenseRecords();
       setRecords(recs);
+
+      // Aggregate impulse journal scenes from all items (冲动画像)
+      const items = await StorageService.getItems();
+      const sceneCount: Record<string, number> = {};
+      items.forEach((it) => {
+        if (it.journal?.scene) {
+          sceneCount[it.journal.scene] = (sceneCount[it.journal.scene] || 0) + 1;
+        }
+      });
+      const sorted = Object.entries(sceneCount).sort((a, b) => b[1] - a[1]);
+      setJournalSceneStats(sorted);
     }
     loadRecords();
   }, [stats]);
@@ -301,6 +313,27 @@ export const VaultScreen: React.FC<VaultScreenProps> = ({
           {/* TAB 2: 防御战报手账 */}
           {activeTab === 'history' && (
             <View style={styles.historySection}>
+              {/* 冲动画像：日记场景分布 */}
+              {journalSceneStats.length > 0 && (
+                <View style={styles.profileCard}>
+                  <Text style={styles.profileTitle}>🧠 我的冲动画像</Text>
+                  <Text style={styles.profileSub}>了解冲动来源，是克制的第一步</Text>
+                  {journalSceneStats.map(([scene, count]) => {
+                    const maxCount = journalSceneStats[0][1];
+                    const widthPct = Math.max(12, Math.round((count / maxCount) * 100));
+                    return (
+                      <View key={scene} style={styles.profileRow}>
+                        <Text style={styles.profileScene}>{scene}</Text>
+                        <View style={styles.profileBarBg}>
+                          <View style={[styles.profileBarFill, { width: `${widthPct}%` }]} />
+                        </View>
+                        <Text style={styles.profileCount}>{count} 次</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
               {records.length === 0 ? (
                 <View style={styles.emptyHistory}>
                   <Text style={styles.emptyHistoryEmoji}>🛡️</Text>
@@ -674,6 +707,56 @@ const styles = StyleSheet.create({
   historySection: {
     width: '100%',
     gap: 8,
+  },
+  profileCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    padding: 14,
+    marginBottom: 6,
+  },
+  profileTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    marginBottom: 2,
+  },
+  profileSub: {
+    fontSize: 10,
+    color: '#64748B',
+    marginBottom: 12,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  profileScene: {
+    width: 64,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#E2E8F0',
+  },
+  profileBarBg: {
+    flex: 1,
+    height: 10,
+    backgroundColor: '#13233F',
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  profileBarFill: {
+    height: '100%',
+    backgroundColor: '#38BDF8',
+    borderRadius: 5,
+  },
+  profileCount: {
+    width: 32,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#7DD3FC',
+    textAlign: 'right',
   },
   emptyHistory: {
     backgroundColor: '#0F172A',

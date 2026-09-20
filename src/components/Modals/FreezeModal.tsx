@@ -20,6 +20,7 @@ import { HapticsService } from '../../services/haptics';
 import { AudioService } from '../../services/audio';
 import { NotificationService } from '../../services/notifications';
 import { removeBackground } from '../../services/backgroundRemoval';
+import { getImpulseTier, todayStr } from '../../constants/intervention';
 
 interface FreezeModalProps {
   visible: boolean;
@@ -144,6 +145,8 @@ export const FreezeModal: React.FC<FreezeModalProps> = ({ visible, onClose, onFr
     const now = Date.now();
     const thawAt = now + durationMs;
 
+    const tierCfg = getImpulseTier(Math.round(numPrice));
+
     const newItem: FreezerItem = {
       id: 'item-' + Date.now(),
       name: name.trim(),
@@ -162,12 +165,23 @@ export const FreezeModal: React.FC<FreezeModalProps> = ({ visible, onClose, onFr
       frozenAt: now,
       thawAt: thawAt,
       status: 'freezing',
-      breakTapsRemaining: 100,
+      breakTapsRemaining: tierCfg.maxTaps,
       calmWaitBonus: 0,
+      // Intervention module fields
+      tier: tierCfg.tier,
+      tapsToday: 0,
+      chillToday: 0,
+      lastResetDate: todayStr(),
+      rationalMarks: [],
+      quizInsisted: 0,
+      answeredQuizLevels: [],
+      interventionLog: [],
+      notificationIds: [],
     };
 
-    // Schedule notification
-    await NotificationService.scheduleThawNotification(newItem.name, thawAt);
+    // Schedule the full set of intervention nudges (progress milestones + thaw)
+    const notificationIds = await NotificationService.scheduleInterventionNudges(newItem);
+    newItem.notificationIds = notificationIds;
 
     onFreezeItem(newItem);
     // Reset form

@@ -20,8 +20,13 @@ interface TapShieldProps {
   tapsRemaining: number;
   calmWaitBonus?: number;
   countdownProgressPercent?: number;
+  maxTaps?: number;              // 档位破冰总次数
+  chillToday?: number;           // 今日已完成呼吸次数
+  dailyBreathLimit?: number;     // 档位每日呼吸上限
+  tapFatigued?: boolean;         // 今日敲击进入疲劳（超 dailyTapLimit）
+  dailyTapExhausted?: boolean;   // 今日敲击已达上限，禁止继续
   onTapBreaker: () => void;
-  onChillBoost: () => void;
+  onOpenBreathChamber: () => void; // 打开深呼吸冷静舱
 }
 
 export const TapShield: React.FC<TapShieldProps> = ({
@@ -31,17 +36,19 @@ export const TapShield: React.FC<TapShieldProps> = ({
   tapsRemaining,
   calmWaitBonus = 0,
   countdownProgressPercent = 0,
+  maxTaps = 100,
+  chillToday = 0,
+  dailyBreathLimit = 3,
+  tapFatigued = false,
+  dailyTapExhausted = false,
   onTapBreaker,
-  onChillBoost,
+  onOpenBreathChamber,
 }) => {
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
 
-  // Chill breathing progress
-  const [isPressingChill, setIsPressingChill] = useState(false);
-  const chillProgressAnim = useRef(new Animated.Value(0)).current;
-  const chillTimerRef = useRef<any>(null);
+  const breathLimitReached = chillToday >= dailyBreathLimit;
 
   // Floating idle loop
   useEffect(() => {
@@ -75,10 +82,12 @@ export const TapShield: React.FC<TapShieldProps> = ({
   const naturalMeltStage = getNaturalMeltStage();
 
   // Cracking overlay based on remaining taps
+  // Crack overlay thresholds scale with tier maxTaps
   const getCrackOverlay = () => {
-    if (tapsRemaining <= 15) return ASSETS.iceCubeCrackOverlay90;
-    if (tapsRemaining <= 45) return ASSETS.iceCubeCrackOverlay60;
-    if (tapsRemaining <= 75) return ASSETS.iceCubeCrackOverlay30;
+    const ratio = tapsRemaining / Math.max(1, maxTaps);
+    if (ratio <= 0.15) return ASSETS.iceCubeCrackOverlay90;
+    if (ratio <= 0.45) return ASSETS.iceCubeCrackOverlay60;
+    if (ratio <= 0.75) return ASSETS.iceCubeCrackOverlay30;
     return null;
   };
 
@@ -98,6 +107,7 @@ export const TapShield: React.FC<TapShieldProps> = ({
   };
 
   const triggerBreakerImpact = () => {
+    if (dailyTapExhausted || naturalMeltStage >= 100) return;
     Animated.parallel([
       Animated.sequence([
         Animated.timing(shakeAnim, { toValue: -9, duration: 35, useNativeDriver: true }),
@@ -116,36 +126,6 @@ export const TapShield: React.FC<TapShieldProps> = ({
     AudioService.playIceCrackSound();
     HapticsService.mediumTap();
     onTapBreaker();
-  };
-
-  // Chill breathing press handlers
-  const handleChillPressIn = () => {
-    setIsPressingChill(true);
-    HapticsService.lightTap();
-    chillProgressAnim.setValue(0);
-
-    Animated.timing(chillProgressAnim, {
-      toValue: 1,
-      duration: 3000,
-      useNativeDriver: false,
-    }).start(({ finished }) => {
-      if (finished) {
-        // Successfully held for 3s
-        setIsPressingChill(false);
-        HapticsService.victorySuccess();
-        AudioService.playCoinSound();
-        onChillBoost();
-        chillProgressAnim.setValue(0);
-      }
-    });
-  };
-
-  const handleChillPressOut = () => {
-    if (isPressingChill) {
-      setIsPressingChill(false);
-      chillProgressAnim.stopAnimation();
-      chillProgressAnim.setValue(0);
-    }
   };
 
   const crackOverlay = getCrackOverlay();
@@ -272,48 +252,35 @@ export const TapShield: React.FC<TapShieldProps> = ({
         <Text style={styles.statusBadgeText}>{getStatusHeadline()}</Text>
       </View>
 
-      {/* 3. Core Gameplay Action 1: ❄️【急冻深呼吸·按住注冷】(Chill Boost) */}
+      {/* 3. Core Gameplay Action 1: ❄️【深呼吸冷静舱】入口 */}
       <View style={styles.chillCard}>
         <Pressable
-          onPressIn={handleChillPressIn}
-          onPressOut={handleChillPressOut}
+          onPress={() => {
+            if (breathLimitReached) return;
+            HapticsService.lightTap();
+            onOpenBreathChamber();
+          }}
           style={({ pressed }) => [
             styles.chillBtn,
-            pressed && styles.chillBtnPressed,
+            pressed && !breathLimitReached && styles.chillBtnPressed,
+            breathLimitReached && styles.chillBtnDisabled,
           ]}
         >
           <View style={styles.chillContent}>
             <View style={styles.chillIconBadge}>
-              <Text style={styles.chillEmoji}>{isPressingChill ? '💨' : '❄️'}</Text>
+              <Text style={styles.chillEmoji}>{breathLimitReached ? '✅' : '🌬️'}</Text>
             </View>
             <View style={styles.chillTextCol}>
               <Text style={styles.chillTitle}>
-                {isPressingChill ? '深度吸气·保持按住...' : '按住注入理智冷气 (急冻深呼吸)'}
+                {breathLimitReached ? '今日理智冷气已充足' : '进入深呼吸冷静舱 (4-7-8 呼吸法)'}
               </Text>
               <Text style={styles.chillSub}>
-                {isPressingChill
-                  ? '持续按住 3 秒注入冰晶，平复多巴胺躁动'
-                  : `长按 3 秒获得自控力经验 · 当前已冷静注冷 ${calmWaitBonus} 次`}
+                {breathLimitReached
+                  ? `今日已完成 ${chillToday}/${dailyBreathLimit} 次 · 明天再来继续修炼`
+                  : `完成 3 轮呼吸引导 +10 EXP · 今日 ${chillToday}/${dailyBreathLimit} 次`}
               </Text>
             </View>
           </View>
-
-          {/* Animated Progress Bar along bottom */}
-          {isPressingChill && (
-            <View style={styles.chillProgressTrack}>
-              <Animated.View
-                style={[
-                  styles.chillProgressFill,
-                  {
-                    width: chillProgressAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ['0%', '100%'],
-                    }),
-                  },
-                ]}
-              />
-            </View>
-          )}
         </Pressable>
       </View>
 
@@ -321,47 +288,32 @@ export const TapShield: React.FC<TapShieldProps> = ({
       <View style={styles.breakerCard}>
         <View style={styles.breakerHeaderRow}>
           <Text style={styles.breakerTitle}>🔨 破冰阻断意志挑战</Text>
-          <Text style={styles.breakerTapsLeft}>{tapsRemaining}/100 次阻断点击</Text>
+          <Text style={styles.breakerTapsLeft}>{tapsRemaining}/{maxTaps} 次阻断点击</Text>
         </View>
 
         <TouchableOpacity
-          style={styles.breakerActionBtn}
-          activeOpacity={0.8}
+          style={[styles.breakerActionBtn, dailyTapExhausted && styles.breakerBtnDisabled]}
+          activeOpacity={dailyTapExhausted ? 1 : 0.8}
           onPress={triggerBreakerImpact}
+          disabled={dailyTapExhausted}
         >
           <Image source={ASSETS.btnIceBreaker} style={styles.breakerBtnImg} resizeMode="contain" />
+          {dailyTapExhausted && (
+            <View style={styles.breakerDisabledOverlay}>
+              <Text style={styles.breakerDisabledText}>今日宣泄已足够</Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         <Text style={styles.breakerTip}>
-          💡 提示：若非要提前强行解冻，需攻破 100 次冰层阻断并在 25/50/75/100 阈值接受灵魂拷问。
+          {dailyTapExhausted
+            ? '🧘 今天的冲动发泄已经足够了，去深呼吸冷静舱坐坐吧。'
+            : tapFatigued
+            ? '😮‍💨 冰层似乎对你的敲击产生了抗性…也许该试试更理智的方式？'
+            : `💡 提示：若非要提前强行解冻，需攻破 ${maxTaps} 次冰层阻断并在阈值处接受灵魂拷问。`}
         </Text>
       </View>
 
-      {/* 5. Opportunity Cost Transformer (欲望天平·替代价值) */}
-      <View style={styles.costCard}>
-        <View style={styles.costHeader}>
-          <Text style={styles.costTitle}>⚖️ 欲望天平 · 替代生活价值</Text>
-          <Text style={styles.costBadge}>省下 ¥{item.price.toLocaleString('zh-CN')} 等同于</Text>
-        </View>
-
-        <View style={styles.costGrid}>
-          <View style={styles.costItem}>
-            <Text style={styles.costEmoji}>☕</Text>
-            <Text style={styles.costNum}>{Math.max(1, Math.round(item.price / 35))} 杯</Text>
-            <Text style={styles.costLabel}>精品拿铁咖啡</Text>
-          </View>
-          <View style={styles.costItem}>
-            <Text style={styles.costEmoji}>🍱</Text>
-            <Text style={styles.costNum}>{Math.max(1, Math.round(item.price / 45))} 顿</Text>
-            <Text style={styles.costLabel}>营养轻食餐</Text>
-          </View>
-          <View style={styles.costItem}>
-            <Text style={styles.costEmoji}>🎬</Text>
-            <Text style={styles.costNum}>{Math.max(1, Math.round(item.price / 60))} 次</Text>
-            <Text style={styles.costLabel}>周末IMAX观影</Text>
-          </View>
-        </View>
-      </View>
     </View>
   );
 };
@@ -469,6 +421,10 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: 10,
   },
+  chillBtnDisabled: {
+    opacity: 0.55,
+    borderColor: '#334155',
+  },
   chillBtn: {
     backgroundColor: 'rgba(6, 182, 212, 0.16)',
     borderRadius: 16,
@@ -568,59 +524,24 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 14,
   },
-  // Opportunity Cost Card
-  costCard: {
-    width: '100%',
-    backgroundColor: '#0F1E36',
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#1E3A5F',
-    padding: 12,
-    marginBottom: 10,
+  breakerBtnDisabled: {
+    opacity: 0.6,
   },
-  costHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  breakerDisabledOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
-    marginBottom: 10,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(7, 12, 26, 0.55)',
+    borderRadius: 10,
   },
-  costTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#E2E8F0',
-  },
-  costBadge: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FBBF24',
-  },
-  costGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  costItem: {
-    flex: 1,
-    backgroundColor: '#13233F',
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#1E3A5F',
-  },
-  costEmoji: {
-    fontSize: 20,
-    marginBottom: 2,
-  },
-  costNum: {
-    fontSize: 12,
+  breakerDisabledText: {
+    fontSize: 13,
     fontWeight: '900',
-    color: '#38BDF8',
-    marginVertical: 2,
-  },
-  costLabel: {
-    fontSize: 9,
     color: '#94A3B8',
-    fontWeight: '600',
+    letterSpacing: 1,
   },
 });

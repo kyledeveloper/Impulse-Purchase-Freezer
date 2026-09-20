@@ -12,6 +12,7 @@ import {
 import { FreezerItem, VaultStats, WishlistItem } from './src/types';
 import { StorageService } from './src/services/storage';
 import { AudioService } from './src/services/audio';
+import { NotificationService } from './src/services/notifications';
 import { FreezerScreen } from './src/screens/FreezerScreen';
 import { FreezeDetailScreen } from './src/screens/FreezeDetailScreen';
 import { VaultScreen } from './src/screens/VaultScreen';
@@ -99,6 +100,7 @@ export default function App() {
   const handleAbandonPurchase = async (item: FreezerItem) => {
     setThawModalVisible(false);
     setItemForDecision(null);
+    NotificationService.cancelItemNotifications(item.notificationIds);
 
     // 1. Update item status
     const updatedList = items.map((i) =>
@@ -148,6 +150,7 @@ export default function App() {
   const handleBuyPurchase = async (item: FreezerItem) => {
     setThawModalVisible(false);
     setItemForDecision(null);
+    NotificationService.cancelItemNotifications(item.notificationIds);
 
     const updatedList = items.map((i) =>
       i.id === item.id ? { ...i, status: 'thawed_purchased' as const } : i
@@ -226,6 +229,7 @@ export default function App() {
               const freshStats = await StorageService.getVaultStats();
               setVaultStats(freshStats);
             }}
+            onAddWish={handleAddWish}
           />
         );
       case 'vault':

@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "冲动消费冷冻箱",
+    "slug": "impulse-purchase-freezer",
+    "Description": "Impulse Purchase Freezer - 专治非理性冲动消费",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/freezer.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/frozen_phone.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A192F"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.impulsefreezer.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/freezer.png",
+        "backgroundColor": "#C8FA00"
+      },
+      "package": "com.impulsefreezer.app"
+    },
+    "web": {
+      "favicon": "./assets/freezer.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "需要访问相册以添加要冷冻的冲动消费商品图片",
+          "cameraPermission": "需要访问相机以拍摄要冷冻的冲动消费商品"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./src/robot.png",
+          "color": "#C8FA00"
+        }
+      ],
+      "expo-asset",
+      "expo-status-bar"
+    ]
+  }
+}

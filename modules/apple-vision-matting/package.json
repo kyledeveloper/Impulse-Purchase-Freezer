@@ -1,0 +1,15 @@
+{
+  "name": "apple-vision-matting",
+  "version": "1.0.0",
+  "description": "Apple Vision Native Foreground Matting for iOS 17+",
+  "main": "index.ts",
+  "types": "index.ts",
+  "keywords": [
+    "expo",
+    "apple-vision",
+    "matting",
+    "background-removal"
+  ],
+  "author": "",
+  "license": "MIT"
+}

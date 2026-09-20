@@ -1,0 +1,7 @@
+{
+  "name": "apple-vision-matting",
+  "platforms": ["ios"],
+  "ios": {
+    "modules": ["AppleVisionMattingModule"]
+  }
+}

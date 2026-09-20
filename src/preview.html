@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Impulse Purchase Freezer - 资产与按钮预览</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 32px;
+      background: #0f172a;
+      color: #f8fafc;
+      min-height: 100vh;
+    }
+    h1 { margin-bottom: 6px; font-size: 24px; font-weight: 700; }
+    p.subtitle { margin-bottom: 24px; color: #94a3b8; font-size: 14px; }
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 32px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 11px;
+      background: #3b82f6;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      align-items: center;
+      position: sticky;
+      top: 16px;
+      z-index: 50;
+      background: rgba(15, 23, 42, 0.9);
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      backdrop-filter: blur(8px);
+    }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #f8fafc;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .btn.active, .btn:hover {
+      background: #3b82f6;
+      border-color: #3b82f6;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .canvas-box {
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 16px;
+    }
+    .bg-checker {
+      background-color: #e2e8f0;
+      background-image: 
+        linear-gradient(45deg, #cbd5e1 25%, transparent 25%), 
+        linear-gradient(-45deg, #cbd5e1 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #cbd5e1 75%), 
+        linear-gradient(-45deg, transparent 75%, #cbd5e1 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    }
+    .bg-dark { background: #090d16; }
+    .bg-light { background: #ffffff; }
+    .bg-green { background: #064e3b; }
+    .canvas-box img {
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.15));
+    }
+    .info {
+      padding: 10px 14px;
+      border-top: 1px solid #334155;
+      background: #182234;
+    }
+    .name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+    .desc { font-size: 11px; color: #94a3b8; }
+    
+    /* Photo Freeze Interactive Demo Styles */
+    .freeze-showcase {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      background: #1e293b;
+      border: 1px solid #38bdf8;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+    .freeze-stage {
+      flex: 1;
+      min-width: 260px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 40%, #1e3a5f 0%, #0f172a 75%);
+      border-radius: 12px;
+      padding: 24px;
+      border: 1px solid #334155;
+      position: relative;
+    }
+    .ice-wrapper {
+      position: relative;
+      width: 203px;
+      height: 210px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .ice-target-img {
+      position: absolute;
+      max-width: 90px;
+      max-height: 110px;
+      object-fit: contain;
+      top: 48%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));
+    }
+    .ice-overlay-img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 203px;
+      height: 210px;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .freeze-details {
+      flex: 1.4;
+      min-width: 300px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .freeze-details h2 {
+      font-size: 20px;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .freeze-details p {
+      color: #94a3b8;
+      font-size: 13.5px;
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+    .item-presets {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .preset-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      cursor: pointer;
+      font-size: 12.5px;
+      transition: all 0.2s;
+    }
+    .preset-btn:hover, .preset-btn.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #fff;
+    }
+    .upload-label {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      border: 1px solid #60a5fa;
+      color: #fff;
+      font-weight: 500;
+    }
+    .code-box {
+      background: #090d16;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11.5px;
+      color: #7dd3fc;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <h1>冲动消费冷冻箱 - 全套高画质透明背景资产</h1>
+  <p class="subtitle">包含原图 8 大角色物体资产及根据手机 UI 效果图重构/提升画质的 27 个全套按钮、按键、徽章与图标资产。</p>
+  
+  <div class="controls">
+    <span>切换底色测试透明度：</span>
+    <button class="btn active" onclick="setBg('bg-checker')">棋盘格 (透明基准)</button>
+    <button class="btn" onclick="setBg('bg-dark')">深色模式</button>
+    <button class="btn" onclick="setBg('bg-light')">浅色模式</button>
+    <button class="btn" onclick="setBg('bg-green')">游戏背景绿</button>
+  </div>
+
+  <div class="section-title">🧊 用户图片封存专用冰块容器 (User Photo Freeze Container) <span class="badge" style="background:#0284c7;">核心需求</span></div>
+  
+  <div class="freeze-showcase">
+    <div class="freeze-stage">
+      <div class="ice-wrapper" id="iceDemoWrapper">
+        <img id="demoTargetImg" class="ice-target-img" src="./character.png" alt="Frozen Target">
+        <img id="demoIceOverlay" class="ice-overlay-img" src="./ice_cube_solid.png" alt="Ice Cube Solid Overlay">
+      </div>
+      <div style="margin-top: 14px; font-size: 12px; color: #7dd3fc; font-weight: 500;">
+        ❄️ 实时冷冻封存效果演示
+      </div>
+    </div>
+    
+    <div class="freeze-details">
+      <div>
+        <h2><span>🧊</span> 动态封存演示与集成指南</h2>
+        <p>
+          采用纯净实体冰块 <code>ice_cube_solid.png</code>，完整复刻像素质感、四棱透视、表面反光与冰晶细节，无任何旧版残留圆环。任何商品抠图置于底层，上方叠上半透明实体冰块或冰裂/融化图层，呈现通透逼真的“冰封冷冻”效果。
+        </p>
+        
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #e2e8f0;">切换被封存的物品 / 上传你的图片测试：</div>
+        <div class="item-presets">
+          <button class="preset-btn active" onclick="selectPreset('./character.png', this)">像素小人</button>
+          <button class="preset-btn" onclick="selectPreset('./coins.png', this)">金币堆</button>
+          <button class="preset-btn" onclick="selectPreset('./groceries.png', this)">生鲜蔬菜</button>
+          <button class="preset-btn" onclick="selectPreset('./egg_carton.png', this)">鸡蛋盒</button>
+          <label class="preset-btn upload-label" style="cursor:pointer;">
+            📷 上传本地图片封存
+            <input type="file" accept="image/*" style="display:none;" onchange="handleUserPhoto(event)">
+          </label>
+        </div>
+      </div>
+      
+      <div>
+        <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px; color: #94a3b8;">前端组件集成示例 (CSS + HTML)：</div>
+        <div class="code-box">
+&lt;div style="position: relative; width: 203px; height: 210px;"&gt;
+  &lt;!-- 1. 底层：用户上传的抠图商品图片 --&gt;
+  &lt;img src="user_upload.png" style="position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%); max-width: 90px; max-height: 110px; z-index: 1;" /&gt;
+  &lt;!-- 2. 表层：纯净冰块透视封存层（透明度 0.80） --&gt;
+  &lt;img src="ice_cube_solid.png" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; opacity: 0.8; pointer-events: none;" /&gt;
+&lt;/div&gt;
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-bottom: 32px;">
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_solid.png" alt="ice_cube_solid.png"></div>
+      <div class="info">
+        <div class="name">ice_cube_solid.png (核心资产)</div>
+        <div class="desc">203 × 210 | 纯净实体冰块（无圆圈痕迹，封存用户商品核心图层）</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_hd.png" alt="ice_cube_hd.png"></div>
+      <div class="info">
+        <div class="name">ice_cube_hd.png</div>
+        <div class="desc">950 × 982 | 超高清矢量级纯冰块原画切图</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./frozen_phone.png" alt="frozen_phone.png"></div>
+      <div class="info">
+        <div class="name">frozen_phone.png (原始对照)</div>
+        <div class="desc">203 × 210 | 原始带手机版本，透视与水滩基准</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CRACKING PROGRESSION SHOWCASE -->
+  <div class="section-title">🔨 冰块破裂/冰裂纹进度 (Ice Cracking 30% / 60% / 90%) <span class="badge" style="background:#f97316;">击碎/破冰玩法</span></div>
+  <div class="freeze-showcase" style="border-color: #f97316; box-shadow: 0 0 20px rgba(249, 115, 22, 0.15);">
+    <div class="freeze-stage" style="background: radial-gradient(circle at 50% 40%, #3a2318 0%, #0f172a 75%);">
+      <div class="ice-wrapper">
+        <img id="crackPlayerImg" src="./ice_cube_solid.png" style="width: 203px; height: 210px; object-fit: contain;" alt="Crack Stage">
+      </div>
+      <div id="crackStatusText" style="margin-top: 14px; font-size: 13px; color: #fdba74; font-weight: 600;">
+        🔨 初始状态 (0% 完整无损)
+      </div>
+    </div>
+    <div class="freeze-details">
+      <div>
+        <h2 style="color: #fb923c;"><span>💥</span> 破冰攻击受损反馈体系</h2>
+        <p>
+          专为游戏内的 <code>ICE BREAKER ATTACK!</code>（破冰锤击）与 <code>TAP SHIELD</code>（点击破盾）交互打造。从初次受击产生的中心放射裂纹，到中度受损扩展至侧面与顶面，最终发展为即将崩解的密集蛛网裂缝。
+        </p>
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #e2e8f0;">切换破裂阶段或点击模拟敲击：</div>
+        <div class="item-presets">
+          <button class="preset-btn active" onclick="setCrackStage(0, this)">0% 完好</button>
+          <button class="preset-btn" onclick="setCrackStage(30, this)">30% 微裂</button>
+          <button class="preset-btn" onclick="setCrackStage(60, this)">60% 中度裂纹</button>
+          <button class="preset-btn" onclick="setCrackStage(90, this)">90% 重度濒碎</button>
+          <button class="preset-btn upload-label" style="background:linear-gradient(135deg,#ea580c,#c2410c); border-color:#f97316;" onclick="hitIceCrack()">
+            🔨 敲击冰块 (+1 Hit)
+          </button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px; color: #94a3b8;">提供双重集成方案：</div>
+        <div class="code-box" style="color: #fed7aa;">
+// 方案 A：直接切换实心破损冰块 (例如纯物体状态)
+&lt;img src="ice_cube_crack_30.png" /&gt; // 30% 受损
+&lt;img src="ice_cube_crack_60.png" /&gt; // 60% 受损
+&lt;img src="ice_cube_crack_90.png" /&gt; // 90% 受损
+
+// 方案 B：透明纯裂纹图层 (Overlay) 直接叠加在用户图片冰块上
+&lt;img src="ice_cube_crack_overlay_30.png" style="position: absolute; z-index: 3;" /&gt;
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-bottom: 32px;">
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_crack_30.png" alt="ice_cube_crack_30.png"></div>
+      <div class="info">
+        <div class="name">ice_cube_crack_30.png</div>
+        <div class="desc">203 × 210 | 30% 冰裂纹：中心星状冲击坑与放射细纹</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_crack_60.png" alt="ice_cube_crack_60.png"></div>
+      <div class="info">
+        <div class="name">ice_cube_crack_60.png</div>
+        <div class="desc">203 × 210 | 60% 冰裂纹：蔓延至侧面与顶面的蜘蛛网碎纹</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_crack_90.png" alt="ice_cube_crack_90.png"></div>
+      <div class="info">
+        <div class="name">ice_cube_crack_90.png</div>
+        <div class="desc">203 × 210 | 90% 冰裂纹：贯穿性大裂谷与即将崩解碎块</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_crack_overlay_90.png" alt="Overlay 90%"></div>
+      <div class="info">
+        <div class="name">ice_cube_crack_overlay_90.png</div>
+        <div class="desc">203 × 210 | 纯透明裂纹图层（专供用户图片上方叠加）</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MELTING PROGRESSION SHOWCASE -->
+  <div class="section-title">☀️ 冰块消融/融水进度 (Ice Melting 30% / 60% / 90% / 融化成水) <span class="badge" style="background:#06b6d4;">冷静等待玩法</span></div>
+  <div class="freeze-showcase" style="border-color: #06b6d4; box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);">
+    <div class="freeze-stage" style="background: radial-gradient(circle at 50% 40%, #164e63 0%, #0f172a 75%);">
+      <div class="ice-wrapper">
+        <img id="meltPlayerImg" src="./ice_cube_solid.png" style="width: 203px; height: 210px; object-fit: contain;" alt="Melt Stage">
+      </div>
+      <div id="meltStatusText" style="margin-top: 14px; font-size: 13px; color: #67e8f9; font-weight: 600;">
+        ☀️ 初始未融化 (0% 完整冷冻)
+      </div>
+    </div>
+    <div class="freeze-details">
+      <div>
+        <h2 style="color: #22d3ee;"><span>💧</span> 冷静等待自然消融体系</h2>
+        <p>
+          专为 <code>PATIENTLY WAIT</code>（冷静等待）与倒计时降温模式打造。随着等待时间推移，冰块高度逐渐下降、边缘圆滑融化并伴随滑落水滴；水滩逐渐扩大形成同心涟漪波纹；最终 100% 完全消解为一滩清澈明净的像素晶莹水滩。
+        </p>
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #e2e8f0;">选择融化状态或播放动画：</div>
+        <div class="item-presets">
+          <button class="preset-btn active" onclick="setMeltStage(0, this)">0% 原始</button>
+          <button class="preset-btn" onclick="setMeltStage(30, this)">30% 初融</button>
+          <button class="preset-btn" onclick="setMeltStage(60, this)">60% 半融冰丘</button>
+          <button class="preset-btn" onclick="setMeltStage(90, this)">90% 融化残核</button>
+          <button class="preset-btn" onclick="setMeltStage(100, this)">100% 融化成水</button>
+          <button class="preset-btn upload-label" style="background:linear-gradient(135deg,#0891b2,#0284c7); border-color:#22d3ee;" onclick="toggleAutoMelt(this)">
+            ▶ 循环消融动画
+          </button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px; color: #94a3b8;">倒计时状态映射代码参考：</div>
+        <div class="code-box" style="color: #a5f3fc;">
+// 随着冷静倒计时剩余时间 (0%~100%) 动态切换精灵：
+function getMeltAsset(progressPercent) {
+  if (progressPercent &gt;= 100) return 'ice_cube_melt_puddle.png'; // 融化成水
+  if (progressPercent &gt;= 90) return 'ice_cube_melt_90.png';
+  if (progressPercent &gt;= 60) return 'ice_cube_melt_60.png';
+  if (progressPercent &gt;= 30) return 'ice_cube_melt_30.png';
+  return 'ice_cube_solid.png';
+}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-bottom: 32px;">
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_melt_30.png" alt="Melt 30%"></div>
+      <div class="info">
+        <div class="name">ice_cube_melt_30.png</div>
+        <div class="desc">203 × 210 | 融化 30%：顶部降落圆角化、表面水珠滑落</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_melt_60.png" alt="Melt 60%"></div>
+      <div class="info">
+        <div class="name">ice_cube_melt_60.png</div>
+        <div class="desc">203 × 210 | 融化 60%：半融圆润冰丘、扩大水滩与接触波纹</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_melt_90.png" alt="Melt 90%"></div>
+      <div class="info">
+        <div class="name">ice_cube_melt_90.png</div>
+        <div class="desc">203 × 210 | 融化 90%：仅剩微小晶莹小冰芯、大片水洼波纹</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./ice_cube_melt_puddle.png" alt="Melt 100% Puddle"></div>
+      <div class="info">
+        <div class="name">ice_cube_melt_puddle.png</div>
+        <div class="desc">203 × 210 | 融化成水：冰块完全消融，晶莹同心涟漪水滩</div>
+      </div>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_freeze_now.png" alt="FREEZE NOW!"></div>
+      <div class="info">
+        <div class="name">btn_freeze_now.png</div>
+        <div class="desc">FREEZE NOW! (冷冻冲动) 主按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_ice_breaker.png" alt="ICE BREAKER ATTACK!"></div>
+      <div class="info">
+        <div class="name">btn_ice_breaker.png</div>
+        <div class="desc">ICE BREAKER ATTACK! 破冰攻击按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_patiently_wait.png" alt="PATIENTLY WAIT"></div>
+      <div class="info">
+        <div class="name">btn_patiently_wait.png</div>
+        <div class="desc">PATIENTLY WAIT 冷静等待按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_vault_snippet.png" alt="Vault Snippet"></div>
+      <div class="info">
+        <div class="name">btn_vault_snippet.png</div>
+        <div class="desc">Vault Snippet 金库储蓄状态按键</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">状态、功能切换与仪表盘 <span class="badge">Controls & Badges</span></div>
+  <div class="grid">
+        <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/dial_gauge_blank.png" alt="Gauge Blank"></div>
+      <div class="info">
+        <div class="name">dial_gauge_blank.png</div>
+        <div class="desc">纯净环形表盘（无任何文字/数字）</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/dial_countdown_gauge.png" alt="Countdown Gauge"></div>
+      <div class="info">
+        <div class="name">dial_countdown_gauge.png</div>
+        <div class="desc">Countdown 倒计时表盘按键（已去除数字，供动态文字叠加）</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/tab_freezing_vault.png" alt="Tab Control"></div>
+      <div class="info">
+        <div class="name">tab_freezing_vault.png</div>
+        <div class="desc">&lt; Freezing | Vault 顶部切换标签</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_screen_rubbing.png" alt="Screen Rubbing"></div>
+      <div class="info">
+        <div class="name">btn_screen_rubbing.png</div>
+        <div class="desc">Screen Rubbing 屏幕摩擦按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_resistance.png" alt="Resistance"></div>
+      <div class="info">
+        <div class="name">btn_resistance.png</div>
+        <div class="desc">Resistance 冷静抗性按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/badge_tap_shield.png" alt="Tap Shield"></div>
+      <div class="info">
+        <div class="name">badge_tap_shield.png</div>
+        <div class="desc">TAP SHIELD: 100 TAPS TO BREAK 提示按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/badge_timer_gold.png" alt="Timer"></div>
+      <div class="info">
+        <div class="name">badge_timer_gold.png</div>
+        <div class="desc">金色倒计时底框按键（已去除数字，供动态倒计时叠加）</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">金库兑换与属性按键 (Loot Vault Buttons) <span class="badge">Screen 3</span></div>
+  <div class="grid">
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_defense_level.png" alt="DEFENSE LEVEL"></div>
+      <div class="info">
+        <div class="name">btn_defense_level.png</div>
+        <div class="desc">DEFENSE LEVEL 防御等级按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_total_coins.png" alt="TOTAL COINS"></div>
+      <div class="info">
+        <div class="name">btn_total_coins.png</div>
+        <div class="desc">TOTAL COINS 总金币按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_items_defended.png" alt="ITEMS DEFENDED"></div>
+      <div class="info">
+        <div class="name">btn_items_defended.png</div>
+        <div class="desc">ITEMS DEFENDED 已防御物品按键</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_item_grid.png" alt="Grid Button"></div>
+      <div class="info">
+        <div class="name">btn_item_grid.png</div>
+        <div class="desc">物品兑换按键 1 (网格图标)</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_item_headphone.png" alt="Headphone Button"></div>
+      <div class="info">
+        <div class="name">btn_item_headphone.png</div>
+        <div class="desc">物品兑换按键 2 (耳机图标)</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/btn_item_coffee.png" alt="Coffee Button"></div>
+      <div class="info">
+        <div class="name">btn_item_coffee.png</div>
+        <div class="desc">物品兑换按键 3 (咖啡机图标)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">底部奖章徽章按键 (Medals & Badges) <span class="badge">7 款徽章</span></div>
+  <div class="grid">
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/medal_bronze_shield.png" alt="Bronze Shield"></div>
+      <div class="info"><div class="name">medal_bronze_shield.png</div><div class="desc">铜盾星形奖章</div></div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/medal_gold_shield.png" alt="Gold Shield"></div>
+      <div class="info"><div class="name">medal_gold_shield.png</div><div class="desc">金盾星形奖章</div></div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/medal_cyan_energy.png" alt="Cyan Energy"></div>
+      <div class="info"><div class="name">medal_cyan_energy.png</div><div class="desc">青蓝闪电能量徽章</div></div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/medal_gold_coin.png" alt="Gold Coin"></div>
+      <div class="info"><div class="name">medal_gold_coin.png</div><div class="desc">纯金星标金币徽章</div></div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/medal_ribbon_silver.png" alt="Ribbon Silver"></div>
+      <div class="info"><div class="name">medal_ribbon_silver.png</div><div class="desc">丝带银奖牌</div></div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/medal_ribbon_bronze.png" alt="Ribbon Bronze"></div>
+      <div class="info"><div class="name">medal_ribbon_bronze.png</div><div class="desc">丝带铜奖牌</div></div>
+    </div>
+    <div class="card">
+      <div class="canvas-box bg-checker"><img src="./buttons/medal_ribbon_gold.png" alt="Ribbon Gold"></div>
+      <div class="info"><div class="name">medal_ribbon_gold.png</div><div class="desc">丝带金奖牌</div></div>
+    </div>
+  </div>
+
+  <div class="section-title">8 大基础游戏物体资产 <span class="badge">Sprites</span></div>
+  <div class="grid">
+    <div class="card"><div class="canvas-box bg-checker"><img src="./freezer.png"></div><div class="info"><div class="name">freezer.png</div><div class="desc">冷冻冰箱</div></div></div>
+    <div class="card"><div class="canvas-box bg-checker"><img src="./treasure_chest.png"></div><div class="info"><div class="name">treasure_chest.png</div><div class="desc">百宝箱</div></div></div>
+    <div class="card"><div class="canvas-box bg-checker"><img src="./frozen_phone.png"></div><div class="info"><div class="name">frozen_phone.png</div><div class="desc">冰冻手机</div></div></div>
+    <div class="card"><div class="canvas-box bg-checker"><img src="./coins.png"></div><div class="info"><div class="name">coins.png</div><div class="desc">金币堆</div></div></div>
+    <div class="card"><div class="canvas-box bg-checker"><img src="./egg_carton.png"></div><div class="info"><div class="name">egg_carton.png</div><div class="desc">鸡蛋盒</div></div></div>
+    <div class="card"><div class="canvas-box bg-checker"><img src="./robot.png"></div><div class="info"><div class="name">robot.png</div><div class="desc">发光机器人</div></div></div>
+    <div class="card"><div class="canvas-box bg-checker"><img src="./character.png"></div><div class="info"><div class="name">character.png</div><div class="desc">像素小人</div></div></div>
+    <div class="card"><div class="canvas-box bg-checker"><img src="./groceries.png"></div><div class="info"><div class="name">groceries.png</div><div class="desc">蔬菜生鲜</div></div></div>
+  </div>
+
+  <script>
+    function setBg(cls) {
+      document.querySelectorAll('.controls .btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      document.querySelectorAll('.canvas-box').forEach(box => {
+        box.className = 'canvas-box ' + cls;
+      });
+    }
+
+    function selectPreset(src, btn) {
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      const img = document.getElementById('demoTargetImg');
+      img.src = src;
+      img.style.transform = 'translate(-50%, -50%) scale(0.8)';
+      setTimeout(() => {
+        img.style.transform = 'translate(-50%, -50%) scale(1)';
+      }, 50);
+    }
+
+    function handleUserPhoto(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+        const img = document.getElementById('demoTargetImg');
+        img.src = e.target.result;
+        img.style.transform = 'translate(-50%, -50%) scale(0.8)';
+        setTimeout(() => {
+          img.style.transform = 'translate(-50%, -50%) scale(1)';
+        }, 50);
+      };
+    // Cracking progression controller
+    let currentCrackStage = 0;
+    const crackStages = [0, 30, 60, 90];
+    const crackAssets = {
+      0: './ice_cube_solid.png',
+      30: './ice_cube_crack_30.png',
+      60: './ice_cube_crack_60.png',
+      90: './ice_cube_crack_90.png'
+    };
+    const crackDesc = {
+      0: '🔨 初始状态 (0% 完整无损)',
+      30: '⚡ 破裂 30% (冲击落点放射微裂纹)',
+      60: '💥 破裂 60% (蛛网状裂缝蔓延四面)',
+      90: '⚠️ 破裂 90% (结构濒临崩解四分五裂)'
+    };
+
+    function setCrackStage(stage, btn) {
+      currentCrackStage = stage;
+      const img = document.getElementById('crackPlayerImg');
+      const text = document.getElementById('crackStatusText');
+      img.src = crackAssets[stage];
+      text.innerText = crackDesc[stage];
+      if (btn) {
+        btn.parentElement.querySelectorAll('.preset-btn').forEach(b => {
+          if (!b.classList.contains('upload-label')) b.classList.remove('active');
+        });
+        btn.classList.add('active');
+      }
+      // Tap impact punch animation
+      img.style.transform = 'scale(0.92)';
+      setTimeout(() => img.style.transform = 'scale(1)', 80);
+    }
+
+    function hitIceCrack() {
+      let idx = crackStages.indexOf(currentCrackStage);
+      idx = (idx + 1) % crackStages.length;
+      setCrackStage(crackStages[idx]);
+    }
+
+    // Melting progression controller
+    let currentMeltStage = 0;
+    let autoMeltTimer = null;
+    const meltStages = [0, 30, 60, 90, 100];
+    const meltAssets = {
+      0: './ice_cube_solid.png',
+      30: './ice_cube_melt_30.png',
+      60: './ice_cube_melt_60.png',
+      90: './ice_cube_melt_90.png',
+      100: './ice_cube_melt_puddle.png'
+    };
+    const meltDesc = {
+      0: '☀️ 初始未融化 (0% 完整冷冻)',
+      30: '💧 消融 30% (顶部下降圆滑、水珠滑落)',
+      60: '🌊 消融 60% (半融圆润冰丘、水滩扩展)',
+      90: '❄️ 消融 90% (仅余微小晶莹小冰芯)',
+      100: '✨ 100% 融化成水 (完全消融为一滩清泉)'
+    };
+
+    function setMeltStage(stage, btn) {
+      currentMeltStage = stage;
+      const img = document.getElementById('meltPlayerImg');
+      const text = document.getElementById('meltStatusText');
+      img.src = meltAssets[stage];
+      text.innerText = meltDesc[stage];
+      if (btn) {
+        btn.parentElement.querySelectorAll('.preset-btn').forEach(b => {
+          if (!b.classList.contains('upload-label')) b.classList.remove('active');
+        });
+        btn.classList.add('active');
+      }
+      img.style.opacity = '0.7';
+      setTimeout(() => img.style.opacity = '1', 100);
+    }
+
+    function toggleAutoMelt(btn) {
+      if (autoMeltTimer) {
+        clearInterval(autoMeltTimer);
+        autoMeltTimer = null;
+        btn.innerText = '▶ 循环消融动画';
+      } else {
+        btn.innerText = '⏹ 暂停循环动画';
+        autoMeltTimer = setInterval(() => {
+          let idx = meltStages.indexOf(currentMeltStage);
+          idx = (idx + 1) % meltStages.length;
+          setMeltStage(meltStages[idx]);
+        }, 1200);
+      }
+    }
+  </script>
+</body>
+</html>

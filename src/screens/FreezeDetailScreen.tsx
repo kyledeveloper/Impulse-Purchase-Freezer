@@ -270,7 +270,12 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
     }
   };
 
-  const marksProgressText = `${rationalMarks.length}/${tierCfg.quizLevels.length}`;
+  // Only count marks belonging to this tier's quiz levels (level 100 is the
+  // final decision gate, not a collectible mark for tiers that exclude it)
+  const earnedMarkCount = rationalMarks.filter((m) =>
+    tierCfg.quizLevels.includes(m)
+  ).length;
+  const marksProgressText = `${earnedMarkCount}/${tierCfg.quizLevels.length}`;
 
   return (
     <SafeAreaView style={styles.safeArea}>

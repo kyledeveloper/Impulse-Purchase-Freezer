@@ -95,20 +95,29 @@ export const BreathChamber: React.FC<BreathChamberProps> = ({
     runPhaseAnimation(nextPhase);
   };
 
-  // Countdown ticker for current phase
+  // Countdown ticker: only decrements; phase advancement happens in a separate
+  // effect below. (Calling advancePhase() inside a setState updater is unsafe
+  // because React StrictMode double-invokes updaters in dev builds.)
   useEffect(() => {
     if (!visible) return;
     timerRef.current = setInterval(() => {
-      setPhaseSecondsLeft((prev) => {
-        if (prev <= 1) {
-          advancePhase();
-          return 0;
-        }
-        return prev - 1;
-      });
+      setPhaseSecondsLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return clearTimer;
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  // Advance to the next phase whenever the countdown hits exactly 0.
+  // (-1 is a sentinel set while hidden so reopening never double-advances.)
+  useEffect(() => {
+    if (!visible || phaseSecondsLeft !== 0) return;
+    advancePhase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phaseSecondsLeft, visible]);
+
+  // While hidden, park the counter at the -1 sentinel
+  useEffect(() => {
+    if (!visible) setPhaseSecondsLeft(-1);
   }, [visible]);
 
   // Reset state whenever chamber opens

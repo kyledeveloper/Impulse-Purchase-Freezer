@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   TouchableOpacity,
   Alert,
+  Linking,
 } from 'react-native';
 import { FreezerItem, VaultStats, WishlistItem } from './src/types';
 import { StorageService } from './src/services/storage';
@@ -18,16 +19,36 @@ import { FreezeDetailScreen } from './src/screens/FreezeDetailScreen';
 import { VaultScreen } from './src/screens/VaultScreen';
 import { FreezeModal } from './src/components/Modals/FreezeModal';
 import { ThawDecisionModal } from './src/components/Modals/ThawDecisionModal';
+import { PurchaseConfirmSteps } from './src/components/Modals/PurchaseConfirmSteps';
+import { VictorySettlement } from './src/components/Modals/VictorySettlement';
 import { ConfettiEffect } from './src/components/ConfettiEffect';
+import {
+  canRefreeze,
+  refreezeLeft,
+  REFREEZE,
+  ExpBreakdown,
+} from './src/constants/decision';
+import { RewardsService } from './src/services/rewards';
+import { MEDAL_LIST } from './src/constants/mockData';
+import { EXP_PERK_COST, perkMinLevel } from './src/constants/rewards';
 
 export default function App() {
   const [items, setItems] = useState<FreezerItem[]>([]);
   const [vaultStats, setVaultStats] = useState<VaultStats>({
     totalSaved: 0,
+    availableBalance: 0,
+    allocatedToWishes: 0,
     itemsDefended: 0,
     defenseLevel: 1,
     willpowerExp: 0,
     unlockedMedals: [],
+    monthlyPurchasedCount: 0,
+    monthlyPurchasedAmount: 0,
+    purchaseMonth: '',
+    currentStreak: 0,
+    perfectDefenses: 0,
+    ownedPerks: [],
+    lastDailyRewardDate: '',
   });
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
 
@@ -40,6 +61,19 @@ export default function App() {
   const [thawModalVisible, setThawModalVisible] = useState(false);
   const [itemForDecision, setItemForDecision] = useState<FreezerItem | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
+
+  // Decision module state
+  const [purchaseConfirmVisible, setPurchaseConfirmVisible] = useState(false);
+  const [itemForPurchase, setItemForPurchase] = useState<FreezerItem | null>(null);
+  const [victoryVisible, setVictoryVisible] = useState(false);
+  const [victoryData, setVictoryData] = useState<{
+    item: FreezerItem;
+    expBreakdown: ExpBreakdown;
+    newlyUnlocked: string[];
+    stats: VaultStats;
+    autoAllocatedWishTitle: string | null;
+    isPerfect: boolean;
+  } | null>(null);
 
   // Desktop simulator frame toggle
   const [usePhoneFrame, setUsePhoneFrame] = useState(Platform.OS === 'web');
@@ -56,6 +90,30 @@ export default function App() {
       setItems(storedItems);
       setVaultStats(storedStats);
       setWishlist(storedWishlist);
+
+      // 每日连胜奖励：连胜 >= 3 天时，今日首次打开 +5 EXP
+      const storedRecords = await StorageService.getDefenseRecords();
+      const claimed = await RewardsService.claimDailyStreakReward(
+        storedStats,
+        storedRecords,
+        (s) => StorageService.saveVaultStats(s)
+      );
+      if (claimed) {
+        setVaultStats(claimed.stats);
+        if (claimed.expGained > 0) {
+          Alert.alert(
+            '🔥 连胜奖励',
+            `连续 ${claimed.streak} 天无冲动购买！意志力 +${claimed.expGained} EXP`
+          );
+        }
+        if (claimed.newlyUnlocked.length > 0) {
+          const names = claimed.newlyUnlocked
+            .map((id) => MEDAL_LIST.find((m) => m.id === id)?.name)
+            .filter(Boolean)
+            .join('、');
+          if (names) Alert.alert('🏅 新奖章解锁', names);
+        }
+      }
     }
 
     loadData();
@@ -109,46 +167,44 @@ export default function App() {
     setItems(updatedList);
     await StorageService.saveItems(updatedList);
 
-    // 2. Accumulate saved price into Loot Vault & record defense log
-    const { stats: updatedStats, newlyUnlocked } =
+    // 2. Record with dynamic EXP + auto-allocation into wishes
+    const { stats: updatedStats, newlyUnlocked, expBreakdown, wishlist: updatedWishlist, autoAllocatedWishId, isPerfect } =
       await StorageService.recordAbandonedPurchase(item);
     setVaultStats(updatedStats);
+    setWishlist(updatedWishlist);
 
-    // 3. Trigger victory confetti
+    // 3. Trigger victory confetti + settlement ceremony
     setShowConfetti(true);
+    const allocWish = autoAllocatedWishId
+      ? updatedWishlist.find((w) => w.id === autoAllocatedWishId)
+      : null;
+    setVictoryData({
+      item,
+      expBreakdown,
+      newlyUnlocked,
+      stats: updatedStats,
+      autoAllocatedWishTitle: allocWish?.title ?? null,
+      isPerfect,
+    });
+    setVictoryVisible(true);
 
-    // 4. Return to freezer or vault
+    // 4. Return to freezer
     if (screen === 'detail') {
       setScreen('freezer');
       setSelectedItem(null);
     }
-
-    // 5. Celebration message
-    let medalMsg = '';
-    if (newlyUnlocked.length > 0) {
-      medalMsg = '\n\n🏆 恭喜解锁了新的成就勋章！请前往【金库】查看！';
-    }
-
-    Alert.alert(
-      '🪙 理性大胜利！金币入袋！',
-      `你成功战胜了冲动！省下的 ¥${item.price.toLocaleString(
-        'zh-CN'
-      )} 已全额存入战利品金库！当前累计金币：¥${updatedStats.totalSaved.toLocaleString(
-        'zh-CN'
-      )}，自控力经验 +80 EXP！${medalMsg}`,
-      [
-        {
-          text: '查看金库',
-          onPress: () => setScreen('vault'),
-        },
-        { text: '继续冷冻' },
-      ]
-    );
   };
 
-  // Handler: Choose to buy (Deliberate choice)
-  const handleBuyPurchase = async (item: FreezerItem) => {
+  // Handler: "仍然想买" pressed in decision modal -> open 3-step confirmation
+  const handleBuyPurchase = (item: FreezerItem) => {
     setThawModalVisible(false);
+    setItemForPurchase(item);
+    setPurchaseConfirmVisible(true);
+  };
+
+  // Handler: purchase confirmed after 3-step ritual
+  const handlePurchaseConfirmed = async (item: FreezerItem) => {
+    setPurchaseConfirmVisible(false);
     setItemForDecision(null);
     NotificationService.cancelItemNotifications(item.notificationIds);
 
@@ -158,16 +214,150 @@ export default function App() {
     setItems(updatedList);
     await StorageService.saveItems(updatedList);
 
-    // Log purchase to defense history
-    const { stats: updatedStats } = await StorageService.recordConfirmedPurchase(item);
+    // Log purchase (EXP with impulse-residue penalty + monthly stats)
+    const { stats: updatedStats, expEarned } = await StorageService.recordConfirmedPurchase(item);
     setVaultStats(updatedStats);
+
+    // Schedule 30-day usage feedback reminder
+    const feedbackReminderId = await NotificationService.scheduleUsageFeedbackReminder(
+      item.id,
+      item.name
+    );
+    if (feedbackReminderId) {
+      const withReminder = updatedList.map((i) =>
+        i.id === item.id ? { ...i, status: 'thawed_purchased' as const, feedbackReminderId } : i
+      );
+      setItems(withReminder);
+      await StorageService.saveItems(withReminder);
+    }
 
     if (screen === 'detail') {
       setScreen('freezer');
       setSelectedItem(null);
     }
 
-    Alert.alert('✅ 理性消费确认', `经过完整的冷静期，你确认了对「${item.name}」的真正需要！祝购物愉快！`);
+    // Open the original purchase link
+    if (item.originalUrl) {
+      Linking.openURL(item.originalUrl).catch(() => {
+        Alert.alert('提示', '无法打开原始链接');
+      });
+    }
+
+    Alert.alert(
+      '✅ 理性消费确认',
+      `经过完整的冷静期，你确认了对「${item.name}」的真正需要！意志力 +${expEarned} EXP。30 天后欢迎回来记录使用体验。`
+    );
+  };
+
+  // Handler: refreeze the item for another 24h (max REFREEZE.maxCount times)
+  // 执行再冻（不校验次数上限；次数校验在入口处完成）
+  const applyRefreeze = async (item: FreezerItem) => {
+    setThawModalVisible(false);
+    setItemForDecision(null);
+
+    // Cancel old nudges, extend thaw window, schedule fresh thaw notice
+    await NotificationService.cancelItemNotifications(item.notificationIds);
+    const newThawAt = Date.now() + REFREEZE.extendHours * 3600 * 1000;
+    const thawNoticeId = await NotificationService.scheduleThawNotification(item.name, newThawAt);
+
+    const updated: FreezerItem = {
+      ...item,
+      thawAt: newThawAt,
+      refreezeCount: (item.refreezeCount || 0) + 1,
+      notificationIds: thawNoticeId ? [thawNoticeId] : [],
+    };
+    const updatedList = items.map((i) => (i.id === item.id ? updated : i));
+    setItems(updatedList);
+    await StorageService.saveItems(updatedList);
+
+    if (screen === 'detail') {
+      setSelectedItem(updated);
+    }
+
+    Alert.alert(
+      '🧊 已重新冷冻',
+      `「${item.name}」将再冷静 ${REFREEZE.extendHours} 小时。剩余再冻次数：${refreezeLeft(updated)} 次。`
+    );
+  };
+
+  const handleRefreeze = async (item: FreezerItem) => {
+    if (!canRefreeze(item)) return;
+    await applyRefreeze(item);
+  };
+
+  // 情景特权：提前解冻（200 EXP + Lv.5，跳过剩余倒计时直接抉择；每件商品限 1 次）
+  const handleEarlyThaw = (item: FreezerItem) => {
+    // 已付费过：直接进入抉择，不再扣 EXP（避免重复扣费的死循环）
+    if (item.earlyThawedAt) {
+      setItemForDecision(item);
+      setThawModalVisible(true);
+      return;
+    }
+    const earlyThawLevel = perkMinLevel('early_thaw');
+    Alert.alert(
+      '⚡ 提前解冻特权',
+      `花费 ${EXP_PERK_COST.early_thaw} EXP 立即进入最终抉择？\n（需 Lv.${earlyThawLevel} 解锁；未自然到期将不计入「完美克制」；每件商品限用 1 次）`,
+      [
+        { text: '再等等', style: 'cancel' },
+        {
+          text: '立即解冻',
+          onPress: async () => {
+            const result = await StorageService.spendExpForContextualPerk('early_thaw');
+            if (!result.ok) {
+              if (result.reason === 'level') {
+                Alert.alert(
+                  '🔒 段位不足',
+                  `提前解冻特权需要 Lv.${result.requiredLevel}（当前 Lv.${result.currentLevel}）。继续冷冻商品提升段位吧！`
+                );
+              } else {
+                Alert.alert('EXP 不足', `提前解冻需要 ${result.cost} EXP。`);
+              }
+              return;
+            }
+            setVaultStats(result.stats);
+            // 打上「已提前解冻」标记并落盘，保证不会重复扣费
+            const marked: FreezerItem = { ...item, earlyThawedAt: Date.now() };
+            const nextList = items.map((i) => (i.id === item.id ? marked : i));
+            setItems(nextList);
+            await StorageService.saveItems(nextList);
+            setSelectedItem(marked);
+            setItemForDecision(marked);
+            setThawModalVisible(true);
+          },
+        },
+      ]
+    );
+  };
+
+  // 情景特权：再冻一次 +（100 EXP + Lv.7，突破常规再冻次数上限）
+  const handleExtraRefreeze = (item: FreezerItem) => {
+    const extraRefreezeLevel = perkMinLevel('extra_refreeze');
+    Alert.alert(
+      '🧊 再冻一次 +',
+      `常规再冻次数已用完。花费 ${EXP_PERK_COST.extra_refreeze} EXP 额外再冻 ${REFREEZE.extendHours} 小时？\n（需 Lv.${extraRefreezeLevel} 解锁）`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '使用特权',
+          onPress: async () => {
+            const result = await StorageService.spendExpForContextualPerk('extra_refreeze');
+            if (!result.ok) {
+              if (result.reason === 'level') {
+                Alert.alert(
+                  '🔒 段位不足',
+                  `再冻一次 + 需要 Lv.${result.requiredLevel}（当前 Lv.${result.currentLevel}）。`
+                );
+              } else {
+                Alert.alert('EXP 不足', `再冻一次 + 需要 ${result.cost} EXP。`);
+              }
+              return;
+            }
+            setVaultStats(result.stats);
+            await applyRefreeze(item);
+          },
+        },
+      ]
+    );
   };
 
   // Handler: Add a custom wish to market
@@ -182,13 +372,44 @@ export default function App() {
     setWishlist(updated);
   };
 
-  // Handler: Redeem a wish from the market
+  // Handler: Redeem a fully-charged wish (deducts allocated funds, +50 EXP)
   const handleRedeemWish = async (wish: WishlistItem) => {
-    const updatedWishlist = wishlist.map((w) =>
-      w.id === wish.id ? { ...w, redeemed: true } : w
-    );
-    setWishlist(updatedWishlist);
-    await StorageService.saveWishlist(updatedWishlist);
+    const result = await StorageService.redeemWish(wish.id);
+    if (!result) {
+      Alert.alert('🔒 心愿尚未充满', '心愿充能满 100% 后才能兑换哦，继续加油！');
+      return;
+    }
+    setWishlist(result.wishlist);
+    setVaultStats(result.stats);
+    AudioService.playFanfareSound();
+    if (result.newlyUnlocked.length > 0) {
+      const names = result.newlyUnlocked
+        .map((id) => MEDAL_LIST.find((m) => m.id === id)?.name)
+        .filter(Boolean)
+        .join('、');
+      if (names) Alert.alert('🏅 新奖章解锁', names);
+    }
+  };
+
+  // Handler: allocate available balance into a wish
+  const handleAllocateToWish = async (wishId: string, amount: number) => {
+    const { stats, wishlist: updated, allocated } = await StorageService.allocateToWish(wishId, amount);
+    setVaultStats(stats);
+    setWishlist(updated);
+    return allocated;
+  };
+
+  // Handler: withdraw allocated funds back to available balance
+  const handleWithdrawFromWish = async (wishId: string, amount: number) => {
+    const { stats, wishlist: updated } = await StorageService.withdrawFromWish(wishId, amount);
+    setVaultStats(stats);
+    setWishlist(updated);
+  };
+
+  // Handler: toggle wish auto-allocate
+  const handleToggleAutoAllocate = async (wishId: string, autoAllocate: boolean) => {
+    const updated = await StorageService.setWishAutoAllocate(wishId, autoAllocate);
+    setWishlist(updated);
   };
 
   // Render Screen Content
@@ -224,6 +445,9 @@ export default function App() {
               setItemForDecision(item);
               setThawModalVisible(true);
             }}
+            willpowerExp={vaultStats.willpowerExp}
+            defenseLevel={vaultStats.defenseLevel}
+            onEarlyThaw={handleEarlyThaw}
             onUpdateItem={async (updated) => {
               await handleUpdateItem(updated);
               const freshStats = await StorageService.getVaultStats();
@@ -241,6 +465,11 @@ export default function App() {
             onRedeemWish={handleRedeemWish}
             onAddWish={handleAddWish}
             onDeleteWish={handleDeleteWish}
+            onAllocateToWish={handleAllocateToWish}
+            onWithdrawFromWish={handleWithdrawFromWish}
+            onToggleAutoAllocate={handleToggleAutoAllocate}
+            onStatsChanged={setVaultStats}
+            onWishlistChanged={setWishlist}
           />
         );
       default:
@@ -263,11 +492,49 @@ export default function App() {
       <ThawDecisionModal
         visible={thawModalVisible}
         item={itemForDecision}
+        wishlist={wishlist}
+        willpowerExp={vaultStats.willpowerExp}
+        defenseLevel={vaultStats.defenseLevel}
         onAbandon={handleAbandonPurchase}
         onBuy={handleBuyPurchase}
+        onRefreeze={handleRefreeze}
+        onExtraRefreeze={handleExtraRefreeze}
         onClose={() => {
           setThawModalVisible(false);
           setItemForDecision(null);
+        }}
+      />
+
+      {/* 3-step purchase confirmation ritual */}
+      <PurchaseConfirmSteps
+        visible={purchaseConfirmVisible}
+        item={itemForPurchase}
+        stats={vaultStats}
+        onConfirm={handlePurchaseConfirmed}
+        onCancel={() => {
+          setPurchaseConfirmVisible(false);
+          // Back to decision modal
+          if (itemForPurchase) {
+            setItemForDecision(itemForPurchase);
+            setThawModalVisible(true);
+          }
+          setItemForPurchase(null);
+        }}
+      />
+
+      {/* Victory settlement ceremony after abandoning */}
+      <VictorySettlement
+        visible={victoryVisible}
+        item={victoryData?.item ?? null}
+        expBreakdown={victoryData?.expBreakdown ?? null}
+        newlyUnlocked={victoryData?.newlyUnlocked ?? []}
+        stats={victoryData?.stats ?? null}
+        autoAllocatedWishTitle={victoryData?.autoAllocatedWishTitle ?? null}
+        isPerfect={victoryData?.isPerfect ?? false}
+        onClose={() => setVictoryVisible(false)}
+        onGoVault={() => {
+          setVictoryVisible(false);
+          setScreen('vault');
         }}
       />
 

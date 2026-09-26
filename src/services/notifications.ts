@@ -122,4 +122,34 @@ export const NotificationService = {
       }
     }
   },
+
+  /**
+   * Schedules the 30-day post-purchase usage-feedback reminder.
+   * Returns the notification id for later cancellation.
+   */
+  async scheduleUsageFeedbackReminder(
+    itemId: string,
+    itemName: string,
+    days = 30
+  ): Promise<string | null> {
+    if (Platform.OS === 'web') return null;
+    try {
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📦 购后回访',
+          body: `你买的「${itemName}」用得怎么样？回来看看它是真香还是吃灰`,
+          sound: false,
+          data: { screen: 'vault', itemId, action: 'usage_feedback' },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: Math.max(60, days * 24 * 3600),
+        },
+      });
+      return id;
+    } catch (e) {
+      console.warn('Failed to schedule usage feedback reminder:', e);
+      return null;
+    }
+  },
 };

@@ -27,6 +27,7 @@ import {
   resetDailyCounters,
   BREATH_CONFIG,
 } from '../constants/intervention';
+import { EXP_PERK_COST, perkMinLevel } from '../constants/rewards';
 
 interface FreezeDetailScreenProps {
   item: FreezerItem;
@@ -34,6 +35,12 @@ interface FreezeDetailScreenProps {
   onTriggerDecision: (item: FreezerItem) => void;
   onUpdateItem: (updated: FreezerItem) => void;
   onAddWish?: (wish: WishlistItem) => void;
+  /** 当前 EXP（提前解冻特权按钮的余额展示） */
+  willpowerExp?: number;
+  /** 当前段位（提前解冻特权 Lv.5 门槛展示） */
+  defenseLevel?: number;
+  /** 情景特权：提前解冻（未到期时扣 200 EXP 直接进入抉择） */
+  onEarlyThaw?: (item: FreezerItem) => void;
 }
 
 export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
@@ -42,6 +49,9 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
   onTriggerDecision,
   onUpdateItem,
   onAddWish,
+  willpowerExp = 0,
+  defenseLevel = 1,
+  onEarlyThaw,
 }) => {
   // Tier config (migrate-on-read: fall back to price-derived tier)
   const tierCfg = getImpulseTier(item.price);
@@ -112,6 +122,12 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
   const s = totalSec % 60;
   const pad = (n: number) => (n < 10 ? '0' + n : n.toString());
   const formattedCountdown = `${pad(h)}:${pad(m)}:${pad(s)}`;
+  const isMatured = remainingMs <= 0;
+  // 提前解冻特权：每件商品限 1 次（已付过费的商品可随时免再次扣费进入抉择）；Lv.5 解锁
+  const earlyThawed = !!item.earlyThawedAt;
+  const earlyThawLevel = perkMinLevel('early_thaw');
+  const earlyThawLocked = defenseLevel < earlyThawLevel;
+  const canAffordEarlyThaw = !earlyThawLocked && (willpowerExp || 0) >= EXP_PERK_COST.early_thaw;
 
   // Calculate countdown progress (0% -> 100%)
   const totalDurationMs =
@@ -182,8 +198,10 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
       chillToday: nextChillToday,
       interventionLog: appendLog(resetItem, { type: 'breath', timestamp: Date.now() }),
     };
+    // 先写 EXP 再回写商品：onUpdateItem 会顺带刷新父级 stats，
+    // 顺序反过来会让 +10 EXP 在本次刷新中丢失（显示值比真实值少 10）。
+    await StorageService.addWillpowerExp(BREATH_CONFIG.expReward, 'breath');
     onUpdateItem(updated);
-    await StorageService.addWillpowerExp(BREATH_CONFIG.expReward);
     showBanner(`❄️ 完成 ${BREATH_CONFIG.roundsRequired} 轮深呼吸 · 意志力 +${BREATH_CONFIG.expReward} EXP`);
   };
 
@@ -258,8 +276,9 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
         detail: `${scene}/${mood}`,
       }),
     };
+    // 同 handleBreathComplete：先写 EXP 再回写商品，避免父级 stats 刷新丢失 +5
+    await StorageService.addWillpowerExp(5, 'journal');
     onUpdateItem(updated);
-    await StorageService.addWillpowerExp(5);
     showBanner('📝 冲动日记已保存 · 意志力 +5 EXP');
   };
 
@@ -412,13 +431,33 @@ export const FreezeDetailScreen: React.FC<FreezeDetailScreenProps> = ({
               </Text>
             </View>
 
-            {/* Quick Test / Instant Thaw Trigger */}
+            {/* Quick Test / Instant Thaw Trigger（未到期时转为提前解冻特权，每件商品限 1 次） */}
             <TouchableOpacity
-              style={styles.instantThawBtn}
+              style={[
+                styles.instantThawBtn,
+                !isMatured && styles.earlyThawBtn,
+                !isMatured && !earlyThawed && !canAffordEarlyThaw && styles.earlyThawDisabled,
+              ]}
               activeOpacity={0.8}
-              onPress={() => onTriggerDecision(item)}
+              onPress={() => {
+                if (isMatured || earlyThawed) {
+                  onTriggerDecision(item);
+                } else if (onEarlyThaw) {
+                  onEarlyThaw(item);
+                }
+              }}
             >
-              <Text style={styles.instantThawText}>⚡ 倒计时结束·进入最终抉择时刻</Text>
+              <Text style={styles.instantThawText}>
+                {isMatured
+                  ? '⚡ 倒计时结束·进入最终抉择时刻'
+                  : earlyThawed
+                  ? '⚡ 已提前解冻 · 进入最终抉择（不再扣 EXP）'
+                  : earlyThawLocked
+                  ? `⚡ 提前解冻特权（需 Lv.${earlyThawLevel} 解锁 · 当前 Lv.${defenseLevel}）`
+                  : canAffordEarlyThaw
+                  ? `⚡ 提前解冻特权（${EXP_PERK_COST.early_thaw} EXP · 当前 ${willpowerExp}）`
+                  : `⚡ 提前解冻特权（需 ${EXP_PERK_COST.early_thaw} EXP · 当前 ${willpowerExp}，不足）`}
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -643,5 +682,12 @@ const styles = StyleSheet.create({
     color: '#38BDF8',
     fontSize: 12,
     fontWeight: '800',
+  },
+  earlyThawBtn: {
+    borderColor: '#A78BFA',
+    backgroundColor: 'rgba(167, 139, 250, 0.12)',
+  },
+  earlyThawDisabled: {
+    opacity: 0.5,
   },
 });

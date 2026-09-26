@@ -42,6 +42,22 @@ export interface FreezerItem {
   journal?: ImpulseJournal; // 冲动日记（每件商品限一次）
   interventionLog?: InterventionRecord[]; // 干预流水
   notificationIds?: string[]; // 已调度的通知 id，便于取消
+
+  // ---- 决策模块新增 ----
+  refreezeCount?: number; // 已再冻次数（上限见 constants/decision.ts）
+  purchasedFeedback?: 'often' | 'sometimes' | 'dusty' | 'sold'; // 购后使用反馈
+  feedbackReminderId?: string; // 30 天使用反馈通知 id
+
+  // ---- 奖励模块新增 ----
+  earlyThawedAt?: number; // 已花 EXP 提前解冻的时间戳（每件商品限 1 次，避免重复扣费）
+}
+
+export interface InterventionSummary {
+  breathCount: number;
+  rationalMarks: number;
+  quizInsisted: number;
+  journalScene?: string;
+  flattenedPercent: number; // 干预压平率（%）
 }
 
 export interface DefenseRecord {
@@ -53,14 +69,28 @@ export interface DefenseRecord {
   timestamp: number;
   freezeDurationHours: number;
   calmBoostCount: number;
+  // ---- 决策模块新增 ----
+  interventionSummary?: InterventionSummary;
+  expEarned?: number;
 }
 
 export interface VaultStats {
-  totalSaved: number; // starts at 0
+  totalSaved: number; // 历史累计节省（只增不减，用于等级/奖章）
+  availableBalance: number; // 可用余额（心愿充能/兑换时扣减）
+  allocatedToWishes: number; // 已分配给心愿的总额
   itemsDefended: number; // starts at 0
-  defenseLevel: number; // starts at 1
+  defenseLevel: number; // 1-12
   willpowerExp: number; // total EXP earned from calm boost & defending
   unlockedMedals: string[]; // medal IDs
+  // ---- 决策模块新增 ----
+  monthlyPurchasedCount: number; // 本月已确认购买件数
+  monthlyPurchasedAmount: number; // 本月已确认购买金额
+  purchaseMonth: string; // 'YYYY-MM'，跨月自动清零上面两项
+  // ---- 奖励模块新增 ----
+  currentStreak: number; // 连续无购买天数
+  perfectDefenses: number; // 完美克制次数
+  ownedPerks: string[]; // 已拥有的特权（如 'medal_frame_gold'）
+  lastDailyRewardDate: string; // 'YYYY-MM-DD'，连胜每日奖励去重
 }
 
 export interface WishlistItem {
@@ -71,6 +101,9 @@ export interface WishlistItem {
   iconType: 'grid' | 'headphone' | 'coffee' | 'flight' | 'game' | 'book';
   redeemed: boolean;
   createdAt: number;
+  // ---- 决策模块新增 ----
+  allocatedAmount?: number; // 已充入该心愿的金额（真实充能进度）
+  autoAllocate?: boolean;   // 放弃购买时是否自动充入
 }
 
 export interface AchievementMedal {
@@ -78,6 +111,19 @@ export interface AchievementMedal {
   name: string;
   description: string;
   iconKey: string;
-  requiredDefended: number;
-  requiredSaved: number;
+  type: 'count' | 'saved' | 'streak' | 'perfect' | 'special';
+  requiredDefended?: number; // type='count'
+  requiredSaved?: number;    // type='saved'
+  requiredStreak?: number;   // type='streak' 连续无购买天数
+  requiredPerfect?: number;  // type='perfect' 完美克制次数
+  requiredWishes?: number;   // type='special' 心愿兑换数
+}
+
+/** EXP 流水：所有 EXP 变动的账本 */
+export interface ExpTransaction {
+  id: string;
+  amount: number;   // 正为产出，负为消耗
+  source: string;   // 'breath' | 'abandon' | 'purchase' | 'journal' | 'streak' | 'wish_redeem' | 'perfect' | 'early_thaw' | 'extra_refreeze' | 'exp_to_balance' | 'perk' | ...
+  itemId?: string;
+  timestamp: number;
 }
